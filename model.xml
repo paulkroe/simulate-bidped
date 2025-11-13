@@ -86,7 +86,7 @@
         <geom type="mesh" mesh="hips" material="mat_hips" mass="0.3"/>
 
         <!-- IMU site on hips -->
-        <site name="imu_site" pos="0.04 0 0.03" size="0.01" rgba="1 0 0 1"/>
+        <site name="imu_site" pos="0.04 0 0.03" size="0.01" rgba="1 0 0 0"/>
 
         <camera name="follow_cam"
           pos="0.8 -0.8 0.5"
@@ -112,7 +112,6 @@
             <geom type="mesh" mesh="left_leg" material="mat_leg" mass="0.15"/>
 
             <body name="left_foot">
-              
               <joint name="left_foot_joint" type="hinge"
                      pos="0.026 -0.005 -0.153"
                      axis="1 0 0"
@@ -123,7 +122,11 @@
               <geom type="mesh" mesh="left_foot" material="mat_foot"
                     contype="1" conaffinity="1" mass="0.1"
                     friction="1.0 0.005 0.0001" solimp="0.9 0.95 0.001" solref="0.02 1"/>
-              <site name="left_sole" size="0.01" rgba="1 0.8 0.2 1"/>
+              <site name="left_sole"
+                type="box"
+                pos="0 -0.015 -0.167"
+                size="0.02 0.03 0.002"
+                rgba="0 1 1 0.4"/>
             </body>
           </body>
         </body>
@@ -156,6 +159,11 @@
               <geom type="mesh" mesh="right_foot" material="mat_foot"
                     contype="1" conaffinity="1" mass="0.1"
                     friction="1.0 0.005 0.0001" solimp="0.9 0.95 0.001" solref="0.02 1"/>
+              <site name="right_sole"
+                type="box"
+                pos="0.08 -0.015 -0.167"
+                size="0.02 0.03 0.002"
+                rgba="1 1 0 0.4"/>
             </body>
           </body>
         </body>
@@ -186,6 +194,31 @@
               kp="50" forcelimited="true" forcerange="-0.3 0.3"
               ctrlrange="-0.4 0.4"/>
   </actuator>
+
+  <sensor>
+    <!-- IMU on hips -->
+    <accelerometer name="imu_acc" site="imu_site"/>
+    <gyro          name="imu_gyro" site="imu_site"/>
+
+    <!-- Joint angles/velocities (all six leg joints) -->
+    <jointpos name="q_left_hip"   joint="left_hip_joint"/>
+    <jointpos name="q_left_knee"  joint="left_leg_joint"/>
+    <jointpos name="q_left_ankle" joint="left_foot_joint"/>
+    <jointvel name="dq_left_hip"   joint="left_hip_joint"/>
+    <jointvel name="dq_left_knee"  joint="left_leg_joint"/>
+    <jointvel name="dq_left_ankle" joint="left_foot_joint"/>
+
+    <jointpos name="q_right_hip"   joint="right_hip_joint"/>
+    <jointpos name="q_right_knee"  joint="right_leg_joint"/>
+    <jointpos name="q_right_ankle" joint="right_foot_joint"/>
+    <jointvel name="dq_right_hip"   joint="right_hip_joint"/>
+    <jointvel name="dq_right_knee"  joint="right_leg_joint"/>
+    <jointvel name="dq_right_ankle" joint="right_foot_joint"/>
+
+    <!-- Foot contact “touch” (normal force at each sole) -->
+    <touch name="left_foot_contact"  site="left_sole"/>
+    <touch name="right_foot_contact" site="right_sole"/>
+  </sensor>
 
   <contact>
     <exclude body1="hips" body2="left_connectors"/>
