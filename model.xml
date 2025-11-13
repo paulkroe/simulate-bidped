@@ -1,11 +1,11 @@
 <mujoco model="biped">
   <compiler angle="radian"/>
-  <option timestep="0.001" gravity="0 0 -9.81"/>
+  <option timestep="0.002" integrator="RK4" iterations="50" tolerance="1e-8" gravity="0 0 -9.81"/>
   <size njmax="100" nconmax="100"/>
 
-  <option>
-    <flag contact="disable"/>
-  </option>
+  <visual>
+    <map znear="0.0005" zfar="10"/>
+  </visual>
 
   <asset>
     <!-- Scaled meshes (mm → m) -->
@@ -21,68 +21,142 @@
     <material name="mat_leg" rgba="0.5 0.8 1.0 1"/>
     <material name="mat_connector" rgba="1.0 0.6 0.6 1"/>
     <material name="mat_foot" rgba="1.0 0.6 0.9 1"/>
+    <texture name="tex_checker" type="2d" builtin="checker"
+         width="512" height="512"
+         rgb1="0.2 0.2 0.2" rgb2="0.8 0.8 0.8"
+         mark="none" markrgb="0 0 0"/>
+    <material name="mat_checker" texture="tex_checker" texrepeat="20 20"
+        reflectance="0.2" shininess="0.1"/>
   </asset>
 
   <worldbody>
-    <body name="hips" pos="0 0 0">
-      <geom type="mesh" mesh="hips" material="mat_hips"/>
+    <!-- Coordinate axes indicator -->
+    <body name="axis_indicator" pos="0 0 0.3">
+      <!-- X-axis: red -->
+      <geom type="capsule" fromto="0 0 0 0.2 0 0"
+            size="0.002"
+            rgba="1 0 0 1"
+            mass="0"
+            density="0"
+            contype="0" conaffinity="0"/>
 
-      <!-- Left side -->
-      <body name="left_connectors">
-        <joint name="left_hip_joint" type="hinge"
-               pos="-0.031 -0.005 -0.045"
-               axis="1 0 0"
-               range="-1.57 1.57"
-               damping="0.05" armature="0.0002"/>
-        <geom type="mesh" mesh="left_connectors" material="mat_connector"/>
+      <!-- Y-axis: green -->
+      <geom type="capsule" fromto="0 0 0 0 0.2 0"
+            size="0.002"
+            rgba="0 1 0 1"
+            mass="0"
+            density="0"
+            contype="0" conaffinity="0"/>
 
-        <body name="left_leg">
-          <joint name="left_leg_joint" type="hinge"
-                 pos="0.025 -0.005 -0.095"
+      <!-- Z-axis: blue -->
+      <geom type="capsule" fromto="0 0 0 0 0 0.2"
+            size="0.002"
+            rgba="0 0 1 1"
+            mass="0"
+            density="0"
+            contype="0" conaffinity="0"/>
+
+      <camera name="fixed_cam"
+          pos="0.8 0.8 0.3"
+          mode="targetbody"
+          target="axis_indicator"
+          fovy="30"/>
+    </body>
+
+
+    <geom name="floor" type="plane"
+          pos="0 0 0"
+          size="5 5 0.1"
+          material="mat_checker"
+          contype="1" conaffinity="1" condim="3"
+          friction="1.0 0.005 0.0001"/>
+
+    <light name="main_light"
+      pos="0 0 2"
+      dir="0 0 -1"
+      diffuse="1 1 1"
+      specular="0.5 0.5 0.5"
+      mode="trackcom"/>
+
+    <body name="biped" pos="0 0 0.17" euler="0 0 1.5708">
+      <joint type="free"/>  <!-- allow full movement in the arena -->
+    
+      <!-- Hips -->
+      <body name="hips" pos="0 0 0">
+        <geom type="mesh" mesh="hips" material="mat_hips" mass="0.3"/>
+
+        <!-- IMU site on hips -->
+        <site name="imu_site" pos="0.04 0 0.03" size="0.01" rgba="1 0 0 1"/>
+
+        <camera name="follow_cam"
+          pos="0.8 -0.8 0.5"
+          mode="targetbody"
+          target="hips"
+          fovy="30"/>
+        
+          <!-- Left side -->
+        <body name="left_connectors">
+          <joint name="left_hip_joint" type="hinge"
+                 pos="-0.031 -0.005 -0.045"
                  axis="1 0 0"
                  range="-1.57 1.57"
                  damping="0.05" armature="0.0002"/>
-          <geom type="mesh" mesh="left_leg" material="mat_leg"/>
+          <geom type="mesh" mesh="left_connectors" material="mat_connector" mass="0.01"/>
 
-          <body name="left_foot">
-            <joint name="left_foot_joint" type="hinge"
-                   pos="0.026 -0.005 -0.153"
+          <body name="left_leg">
+            <joint name="left_leg_joint" type="hinge"
+                   pos="0.025 -0.005 -0.095"
                    axis="1 0 0"
-                   range="-0.4 0.4"
+                   range="-1.57 1.57"
                    damping="0.05" armature="0.0002"/>
-            <inertial pos="0 0 0" mass="0.05"
-                      diaginertia="0.0005 0.0005 0.0005"/>
-            <geom type="mesh" mesh="left_foot" material="mat_foot"/>
+            <geom type="mesh" mesh="left_leg" material="mat_leg" mass="0.15"/>
+
+            <body name="left_foot">
+              
+              <joint name="left_foot_joint" type="hinge"
+                     pos="0.026 -0.005 -0.153"
+                     axis="1 0 0"
+                     range="-0.4 0.4"
+                     damping="0.05" armature="0.0002"/>
+              <inertial pos="0 0 0" mass="0.05"
+                        diaginertia="0.0005 0.0005 0.0005"/>
+              <geom type="mesh" mesh="left_foot" material="mat_foot"
+                    contype="1" conaffinity="1" mass="0.1"
+                    friction="1.0 0.005 0.0001" solimp="0.9 0.95 0.001" solref="0.02 1"/>
+              <site name="left_sole" size="0.01" rgba="1 0.8 0.2 1"/>
+            </body>
           </body>
         </body>
-      </body>
 
-      <!-- Right side -->
-      <body name="right_connectors">
-        <joint name="right_hip_joint" type="hinge"
-               pos="0.031 -0.005 -0.045"
-               axis="1 0 0"
-               range="-1.57 1.57"
-               damping="0.05" armature="0.0002"/>
-        <geom type="mesh" mesh="right_connectors" material="mat_connector"/>
-
-        <body name="right_leg">
-          <joint name="right_leg_joint" type="hinge"
-                 pos="-0.025 -0.005 -0.095"
+        <!-- Right side -->
+        <body name="right_connectors">
+          <joint name="right_hip_joint" type="hinge"
+                 pos="0.031 -0.005 -0.045"
                  axis="1 0 0"
                  range="-1.57 1.57"
                  damping="0.05" armature="0.0002"/>
-          <geom type="mesh" mesh="right_leg" material="mat_leg"/>
+          <geom type="mesh" mesh="right_connectors" material="mat_connector" mass="0.01"/>
 
-          <body name="right_foot">
-            <joint name="right_foot_joint" type="hinge"
-                   pos="0.054 -0.005 -0.153"
+          <body name="right_leg">
+            <joint name="right_leg_joint" type="hinge"
+                   pos="-0.025 -0.005 -0.095"
                    axis="1 0 0"
-                   range="-0.4 0.4"
+                   range="-1.57 1.57"
                    damping="0.05" armature="0.0002"/>
-            <inertial pos="0 0 0" mass="0.05"
-                      diaginertia="0.0005 0.0005 0.0005"/>
-            <geom type="mesh" mesh="right_foot" material="mat_foot"/>
+            <geom type="mesh" mesh="right_leg" material="mat_leg" mass="0.15"/>
+
+            <body name="right_foot">
+              <joint name="right_foot_joint" type="hinge"
+                     pos="0.054 -0.005 -0.153"
+                     axis="1 0 0"
+                     range="-0.4 0.4"
+                     damping="0.05" armature="0.0002"/>
+              <inertial pos="0 0 0" mass="0.05"
+                        diaginertia="0.0005 0.0005 0.0005"/>
+              <geom type="mesh" mesh="right_foot" material="mat_foot"
+                    contype="1" conaffinity="1" mass="0.1"
+                    friction="1.0 0.005 0.0001" solimp="0.9 0.95 0.001" solref="0.02 1"/>
+            </body>
           </body>
         </body>
       </body>
@@ -112,4 +186,9 @@
               kp="50" forcelimited="true" forcerange="-0.3 0.3"
               ctrlrange="-0.4 0.4"/>
   </actuator>
+
+  <contact>
+    <exclude body1="hips" body2="left_connectors"/>
+    <exclude body1="hips" body2="right_connectors"/>
+  </contact>
 </mujoco>
