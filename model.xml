@@ -89,7 +89,7 @@
         <site name="imu_site" pos="0.04 0 0.03" size="0.01" rgba="1 0 0 0"/>
 
         <camera name="follow_cam"
-          pos="0.8 -0.8 0.5"
+          pos="1 -0.4 0.05"
           mode="targetbody"
           target="hips"
           fovy="30"/>
@@ -122,11 +122,17 @@
               <geom type="mesh" mesh="left_foot" material="mat_foot"
                     contype="1" conaffinity="1" mass="0.1"
                     friction="1.0 0.005 0.0001" solimp="0.9 0.95 0.001" solref="0.02 1"/>
-              <site name="left_sole"
+              <site name="left_toe"
                 type="box"
-                pos="0 -0.015 -0.167"
-                size="0.02 0.03 0.002"
+                pos="-0.005 -0.03 -0.167"
+                size="0.025 0.017 0.002"
                 rgba="0 1 1 0.4"/>
+           
+              <site name="left_heel"
+                type="box"
+                pos="-0.005 0 -0.167"
+                size="0.025 0.017 0.002"
+                rgba="1 1 0 0.4"/>
             </body>
           </body>
         </body>
@@ -159,11 +165,19 @@
               <geom type="mesh" mesh="right_foot" material="mat_foot"
                     contype="1" conaffinity="1" mass="0.1"
                     friction="1.0 0.005 0.0001" solimp="0.9 0.95 0.001" solref="0.02 1"/>
-              <site name="right_sole"
+
+              <site name="right_toe"
                 type="box"
-                pos="0.08 -0.015 -0.167"
-                size="0.02 0.03 0.002"
+                pos="0.085 -0.03 -0.167"
+                size="0.025 0.017 0.002"
+                rgba="0 1 1 0.4"/>
+           
+              <site name="right_heel"
+                type="box"
+                pos="0.085 0 -0.167"
+                size="0.025 0.017 0.002"
                 rgba="1 1 0 0.4"/>
+
             </body>
           </body>
         </body>
@@ -216,8 +230,10 @@
     <jointvel name="dq_right_ankle" joint="right_foot_joint"/>
 
     <!-- Foot contact “touch” (normal force at each sole) -->
-    <touch name="left_foot_contact"  site="left_sole"/>
-    <touch name="right_foot_contact" site="right_sole"/>
+    <touch name="left_toe_contact"  site="left_toe"/>
+    <touch name="left_heel_contact"  site="left_heel"/>
+    <touch name="right_toe_contact" site="right_toe"/>
+    <touch name="right_heel_contact" site="right_heel"/>
   </sensor>
 
   <contact>
