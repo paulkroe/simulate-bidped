@@ -2,7 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, Any, Optional, Tuple
+from typing import Callable, Dict, Any, Optional, Tuple, Union, Mapping
 
 import numpy as np
 import mujoco
@@ -10,7 +10,12 @@ import mujoco
 from .base_env import Env, StepResult
 from .specs import EnvSpec, SpaceSpec
 
-RewardFn = Callable[[mujoco.MjModel, mujoco.MjData], float]
+RewardReturn = Union[
+    float,
+    tuple[float, Mapping[str, float]],
+]
+RewardFn = Callable[[mujoco.MjModel, mujoco.MjData], RewardReturn]
+
 DoneFn = Callable[[mujoco.MjModel, mujoco.MjData, int], bool]
 
 
@@ -39,6 +44,10 @@ class MujocoEnv(Env):
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
 
+        # Make sure we start from the model's default (qpos0, etc.)
+        mujoco.mj_resetData(self.model, self.data)
+        mujoco.mj_forward(self.model, self.data)
+        
         # Initial state
         self._init_qpos = self.data.qpos.copy()
         self._init_qvel = self.data.qvel.copy()
@@ -137,13 +146,22 @@ class MujocoEnv(Env):
 
         self._t = 0
 
-        # Reset to initial state (you can add noise/randomization here later)
-        self._set_state(self._init_qpos, self._init_qvel)
+        # Fully reset MuJoCo internal state
+        mujoco.mj_resetData(self.model, self.data)
+
+        # Restore initial pose (in case you later randomize around it)
+        self.data.qpos[:] = self._init_qpos
+        self.data.qvel[:] = self._init_qvel
+
+        # VERY important: clear controls
+        if self.model.nu > 0:
+            self.data.ctrl[:] = 0.0
+
+        mujoco.mj_forward(self.model, self.data)
 
         return self._get_obs()
 
     def step(self, action: np.ndarray) -> StepResult:
-        # Apply control and simulate forward
         applied_action = self._apply_action(action)
 
         for _ in range(self.cfg.frame_skip):
@@ -151,27 +169,35 @@ class MujocoEnv(Env):
             self._t += 1
 
         obs = self._get_obs()
-        reward = self._reward_fn(self.model, self.data)
+
+        reward_raw = self._reward_fn(self.model, self.data)
+        if isinstance(reward_raw, tuple):
+            reward, reward_components = reward_raw
+        else:
+            reward = float(reward_raw)
+            reward_components = {}
+
         done = self._done_fn(self.model, self.data, self._t)
 
         info: Dict[str, Any] = {
             "t": self._t,
             "applied_action": applied_action,
+            "reward_components": reward_components,
         }
+
+        if done:
+            info["episode_length"] = self._t
 
         frame = self._render_frame()
 
-        if done:
-            # Optional: include episode stats here
-            info["episode_length"] = self._t
-
         return StepResult(
             obs=obs,
-            reward=reward,
+            reward=float(reward),
             done=done,
             info=info,
             frame=frame,
         )
+
 
     def close(self) -> None:
         # Renderer holds GL resources; cleanly drop reference

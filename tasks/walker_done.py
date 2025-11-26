@@ -1,11 +1,9 @@
 import mujoco
 
 def walker_done(model: mujoco.MjModel, data: mujoco.MjData, t: int) -> bool:
-    # Termination if torso falls too low or flips
-    torso_id = 1
-    height = data.xpos[torso_id][2]
+    # Get torso world position via named access
+    torso_pos = data.body('torso').xpos  # shape (3,)
+    height = torso_pos[2]
 
-    if height < 0.7:   # tune for your model
-        return True
-
-    return False
+    # Terminate if torso falls too low
+    return height < 0.8

@@ -1,7 +1,16 @@
+sudo apt update
+sudo apt install -y \
+    libx11-6 libgl1 libgl1-mesa-dev libglew-dev \
+    libosmesa6 libosmesa6-dev patchelf
+
+
 cd ~
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 
 bash Miniconda3-latest-Linux-x86_64.sh
+
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
 
 conda create -n rl-mujoco python=3.10 -y
 conda activate rl-mujoco

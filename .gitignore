@@ -1,5 +1,6 @@
-# Custom folders
-simulate_bidped.egg-info/
+# Custom
+*.tar.gz
+*.pyc
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
