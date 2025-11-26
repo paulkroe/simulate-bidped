@@ -1,19 +1,21 @@
-# scripts/train_walker.py
+# scripts/train_walker_mp.py
 from __future__ import annotations
 
-import mujoco
-import numpy as np
+import multiprocessing as mp
 
 from core.mujoco_env import MujocoEnv, MujocoEnvConfig
 from policies.actor_critic import ActorCritic
 from algorithms.ppo import PPO, PPOConfig
-from training.on_policy import OnPolicyTrainer, TrainConfig
+from training.mp_on_policy import (
+    MultiProcessOnPolicyTrainer,
+    MPTrainConfig,
+)
 
 from tasks.walker_reward import walker_reward
 from tasks.walker_done import walker_done
 
-def make_env():
-    # Point to your MuJoCo walker model
+
+def make_env() -> MujocoEnv:
     cfg = MujocoEnvConfig(
         xml_path="assets/walker2d/walker2d.xml",
         episode_length=1000,
@@ -21,13 +23,12 @@ def make_env():
         ctrl_scale=1.0,
         reward_fn=walker_reward,
         done_fn=walker_done,
-        render=False,
+        render=False,  # workers don't need rendering
     )
     return MujocoEnv(cfg)
 
 
 def make_policy(env_spec):
-    # Hidden sizes are easily configurable per-task here
     return ActorCritic(env_spec, hidden_sizes=(64, 64))
 
 
@@ -38,7 +39,7 @@ def make_ppo(actor_critic):
         clip_ratio=0.2,
         lr=3e-4,
         train_iters=80,
-        batch_size=64,
+        batch_size=512,   # larger batch since we're combining workers
         value_coef=0.5,
         entropy_coef=0.0,
         max_grad_norm=0.5,
@@ -47,15 +48,19 @@ def make_ppo(actor_critic):
 
 
 def main():
-    train_cfg = TrainConfig(
+    # Good practice with multiprocessing + PyTorch
+    mp.set_start_method("spawn", force=True)
+
+    train_cfg = MPTrainConfig(
         total_steps=200_000,
-        horizon=2048,
+        horizon=1024,
+        num_workers=4,
         log_interval=10,
         device="cpu",
-        checkpoint_path="checkpoints/walker_ppo.pt",
+        checkpoint_path="checkpoints/walker_ppo_mp.pt",
     )
 
-    trainer = OnPolicyTrainer(
+    trainer = MultiProcessOnPolicyTrainer(
         env_factory=make_env,
         policy_factory=make_policy,
         algo_factory=make_ppo,
