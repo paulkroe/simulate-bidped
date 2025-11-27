@@ -110,6 +110,7 @@ class MujocoEnv(Env):
             action = np.clip(action, low, high)
 
         self.data.ctrl[:] = action
+
         return action
 
     def _render_frame(self) -> Optional[np.ndarray]:

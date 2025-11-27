@@ -1,3 +1,8 @@
+todo: understand why difference action spaces
+fix reference policies
+
+
+
 sudo apt update
 sudo apt install -y \
     libx11-6 libgl1 libgl1-mesa-dev libglew-dev \

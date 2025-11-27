@@ -42,7 +42,7 @@ class OnPolicyTrainer:
         self.device = self.train_cfg.device
 
         # Policy factory receives env.spec
-        self.policy = policy_factory(self.env.spec).to(self.device)
+        self.policy = policy_factory(self.env).to(self.device)
 
         ppo_cfg = ppo_cfg or PPOConfig()
         self.algo = algo_factory(self.policy) if algo_factory else PPO(

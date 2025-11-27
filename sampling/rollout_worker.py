@@ -47,7 +47,7 @@ def worker_loop(
 
     # Important: factories must be top-level functions (picklable)
     env = env_factory()
-    policy = policy_factory(env.spec).to(device)
+    policy = policy_factory(env).to(device)
     policy.eval()
 
     while True:

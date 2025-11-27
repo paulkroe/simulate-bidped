@@ -86,7 +86,7 @@ PolicyFactory = Callable[[Any], ActorCritic]
 def create_app(
     env_factory: EnvFactory,
     policy_factory: PolicyFactory,
-    checkpoint_path: str,
+    checkpoint_path: str | None = None,
     device: str = "cpu",
 ) -> FastAPI:
     """
@@ -101,13 +101,21 @@ def create_app(
 
     async def eval_loop():
         env = env_factory()
-        policy = policy_factory(env.spec).to(device)
-        policy.eval()
+        policy = policy_factory(env)
+        if hasattr(policy, "to"):
+            policy = policy.to(device)
+        if hasattr(policy, "eval"):
+            policy.eval()
 
-        state_dict = torch.load(checkpoint_path, map_location=device)
-        policy.load_state_dict(state_dict)
+        if checkpoint_path is not None:
+            state_dict = torch.load(checkpoint_path, map_location=device)
+            if hasattr(policy, "load_state_dict"):
+                policy.load_state_dict(state_dict)
+
 
         obs = env.reset()
+        if hasattr(policy, "reset"):
+            policy.reset()
         try:
             while True:
                 obs_t = torch.as_tensor(
@@ -118,7 +126,14 @@ def create_app(
                 action = action_t.squeeze(0).cpu().numpy()
 
                 step_res = env.step(action)
-                obs = step_res.obs if not step_res.done else env.reset()
+                
+                # --- handle done & reset policy too ---
+                if step_res.done:
+                    obs = env.reset()
+                    if hasattr(policy, "reset"):
+                        policy.reset()
+                else:
+                    obs = step_res.obs
 
                 # --- update stats ---
                 info = step_res.info

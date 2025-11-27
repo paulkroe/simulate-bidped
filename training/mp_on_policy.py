@@ -49,7 +49,7 @@ class MultiProcessOnPolicyTrainer:
 
         # Create a reference env to get spec (no need for rendering)
         ref_env = env_factory()
-        self.policy = policy_factory(ref_env.spec).to(self.device)
+        self.policy = policy_factory(ref_env).to(self.device)
         ppo_cfg = ppo_cfg or PPOConfig()
         self.algo = algo_factory(self.policy) if algo_factory else PPO(
             self.policy, ppo_cfg, device=self.device

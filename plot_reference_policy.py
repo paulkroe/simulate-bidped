@@ -74,6 +74,8 @@ def main():
     ax2.legend()
     ax2.axhline(0.0, color="k", linewidth=0.5)  # ground
 
+    fig.savefig("foot_positions_over_time.png")
+    fig2.savefig("foot_trajectory.png")
     plt.show()
 
 

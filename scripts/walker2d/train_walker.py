@@ -9,26 +9,25 @@ from policies.actor_critic import ActorCritic
 from algorithms.ppo import PPO, PPOConfig
 from training.on_policy import OnPolicyTrainer, TrainConfig
 
-from tasks.walker_reward import walker_reward
-from tasks.walker_done import walker_done
+from tasks.walker.reward import reward
+from tasks.walker.done import done
 
 def make_env():
-    # Point to your MuJoCo walker model
     cfg = MujocoEnvConfig(
         xml_path="assets/walker2d/walker2d.xml",
         episode_length=1000,
         frame_skip=5,
         ctrl_scale=1.0,
-        reward_fn=walker_reward,
-        done_fn=walker_done,
+        reward_fn=reward,
+        done_fn=done,
         render=False,
     )
     return MujocoEnv(cfg)
 
 
-def make_policy(env_spec):
+def make_policy(env):
     # Hidden sizes are easily configurable per-task here
-    return ActorCritic(env_spec, hidden_sizes=(64, 64))
+    return ActorCritic(env.spec, hidden_sizes=(64, 64))
 
 
 def make_ppo(actor_critic):

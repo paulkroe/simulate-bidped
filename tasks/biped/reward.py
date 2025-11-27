@@ -2,7 +2,7 @@
 import mujoco
 import numpy as np
 
-def walker_reward(
+def reward(
     model: mujoco.MjModel,
     data: mujoco.MjData,
     *,
