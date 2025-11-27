@@ -12,41 +12,69 @@ from control.pd import PDConfig, PDController
 
 @dataclass
 class GaitParams:
-    stride_length: float      # [m]
-    stride_height: float      # [m]
-    cycle_duration: float     # [s]
-    stance_fraction: float = 0.6  # > 0.5 -> double support
+    step_length: float       # like stepLength (front/back x)
+    step_height: float       # like stepHeight (front leg z)
+    step_clearance: float    # like stepClearance (difference in z)
+    cycle_duration: float    # seconds per full step (R-front + L-front)
 
 
-def _foot_trajectory_phase(phase: float, params: GaitParams) -> np.ndarray:
-    phase = phase % 1.0
-    L = params.stride_length
-    H = params.stride_height
-    sf = params.stance_fraction
+@dataclass
+class FootTarget:
+    pos: np.ndarray   # (x, z) in hip frame
+    foot_angle: float # desired pitch (we can keep it 0 for now)
 
-    if phase < sf:
-        # stance
-        s = phase / sf
-        x = L * (0.5 - s)   # +L/2 -> -L/2
-        z = 0.0
+def gait_targets(t: float, params: GaitParams) -> Dict[str, FootTarget]:
+    """
+    Arduino-style gait:
+
+      For 0 <= phase < 0.5:
+        i goes from +step_length to -step_length
+        right:  ( i, step_height)
+        left:   (-i, step_height - step_clearance)
+
+      For 0.5 <= phase < 1.0:
+        i goes from +step_length to -step_length
+        right:  (-i, step_height - step_clearance)
+        left:   ( i, step_height)
+    """
+    phase = (t / params.cycle_duration) % 1.0
+
+    L = params.step_length
+    H = params.step_height
+    C = params.step_clearance
+
+    if phase < 0.5:
+        # first "for loop" in Arduino
+        s = phase / 0.5           # map [0,0.5) -> [0,1)
+        i = L + ( -2 * L * s )    # i: +L -> -L
+
+        right_pos = np.array([ i,  H], dtype=np.float32)
+        left_pos  = np.array([-i,  H - C], dtype=np.float32)
     else:
-        # swing
-        s = (phase - sf) / (1.0 - sf)
-        x = L * (s - 0.5)   # -L/2 -> +L/2
-        z = H * np.sin(np.pi * s)
-    return np.array([x, z], dtype=np.float32)
+        # second "for loop" in Arduino
+        s = (phase - 0.5) / 0.5   # map [0.5,1) -> [0,1)
+        i = L + ( -2 * L * s )    # i: +L -> -L
 
+        right_pos = np.array([-i,  H - C], dtype=np.float32)
+        left_pos  = np.array([ i,  H], dtype=np.float32)
 
-def foot_trajectory(t: float, params: GaitParams, phase_offset: float = 0.0) -> np.ndarray:
-    phase = ((t / params.cycle_duration) + phase_offset) % 1.0
-    return _foot_trajectory_phase(phase, params)
+    # For now keep feet roughly parallel to ground
+    stance_angle = 0.0
+    swing_angle = 0.0
 
+    # Determine which is swing vs stance by z (just for future tweaks)
+    if right_pos[1] > left_pos[1]:
+        right_angle = swing_angle
+        left_angle = stance_angle
+    else:
+        right_angle = stance_angle
+        left_angle = swing_angle
 
-def gait_targets(t: float, params: GaitParams) -> Dict[str, np.ndarray]:
-    left = foot_trajectory(t, params, phase_offset=0.0)
-    right = foot_trajectory(t, params, phase_offset=0.5)
-    return {"left": left, "right": right}
-
+    targets: Dict[str, FootTarget] = {
+        "right": FootTarget(pos=right_pos, foot_angle=right_angle),
+        "left":  FootTarget(pos=left_pos,  foot_angle=left_angle),
+    }
+    return targets
 
 # ------------------------------------------------------------
 # Reference walker policy (hand-crafted gait + IK + PD)
@@ -168,29 +196,29 @@ class ReferenceWalkerPolicy(nn.Module):
         nq = self.env.model.nq
         nv = self.env.model.nv
 
-        q = obs_np[:nq]            # shape (nq,)
-        qd = obs_np[nq:nq + nv]    # shape (nv,)
+        q = obs_np[:nq]
+        qd = obs_np[nq:nq + nv]
 
         t = self._time
         self._time += self.dt
 
-        # 1) Gait targets
+        # 1) Arduino-style gait targets
         targets = gait_targets(t, self.gait_params)
-        left_ankle_target = targets["left"]
-        right_ankle_target = targets["right"]
+        left_target = targets["left"]
+        right_target = targets["right"]
 
         # 2) IK per leg
         hip_L_des, knee_L_des, ankle_L_des = self.ik_left.solve(
-            target_x=float(left_ankle_target[0]),
-            target_z=float(left_ankle_target[1]),
+            target_x=float(left_target.pos[0]),
+            target_z=float(left_target.pos[1]),
             compute_ankle=True,
-            desired_foot_angle=self.desired_foot_angle,
+            desired_foot_angle=float(left_target.foot_angle),
         )
         hip_R_des, knee_R_des, ankle_R_des = self.ik_right.solve(
-            target_x=float(right_ankle_target[0]),
-            target_z=float(right_ankle_target[1]),
+            target_x=float(right_target.pos[0]),
+            target_z=float(right_target.pos[1]),
             compute_ankle=True,
-            desired_foot_angle=self.desired_foot_angle,
+            desired_foot_angle=float(right_target.foot_angle),
         )
 
         # 3) Desired joint positions in full q vector

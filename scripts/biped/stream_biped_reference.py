@@ -38,10 +38,10 @@ def make_env() -> MujocoEnv:
 def make_policy(env: MujocoEnv):
     # ---- Gait parameters ----
     gait_params = GaitParams(
-        stride_length=0.03,
-        stride_height=0.03,
-        cycle_duration=5.0,
-        stance_fraction=0.6,
+        step_length=0.01,      # tune to be realistic for your tiny biped
+        step_height=0.01,      # front foot height
+        step_clearance=1,  # back foot just a bit lower
+        cycle_duration=1.0,    # 1 second per full step R->L
     )
 
     leg_geom_left = Planar2RLegConfig(
@@ -63,7 +63,7 @@ def make_policy(env: MujocoEnv):
     )
 
     pd_cfg = PDConfig(
-        kp=50.0,
+        kp=10.0,
         kd=1.0,
         torque_limit=None,
     )

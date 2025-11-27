@@ -24,9 +24,9 @@ pip install numpy==1.26.4
 pip install torch --index-url https://download.pytorch.org/whl/cpu  # CPU cluster
 pip install mujoco==3.1.2
 pip install fastapi uvicorn
-pip install dataclasses-json  # optional but handy for configs
+pip install dataclasses-json
 pip install fastapi uvicorn pillow
-
+pip install matplotlib
 
 mkdir -p ~/.mujoco
 wget https://github.com/google-deepmind/mujoco/releases/download/3.1.2/mujoco-3.1.2-linux-x86_64.tar.gz
