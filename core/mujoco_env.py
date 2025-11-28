@@ -14,7 +14,7 @@ RewardReturn = Union[
     float,
     tuple[float, Mapping[str, float]],
 ]
-RewardFn = Callable[[mujoco.MjModel, mujoco.MjData], RewardReturn]
+RewardFn = Callable[..., RewardReturn]
 
 DoneFn = Callable[[mujoco.MjModel, mujoco.MjData, int], bool]
 
@@ -67,6 +67,7 @@ class MujocoEnv(Env):
 
         # Episode time-step counter
         self._t = 0
+        self.dt = float(self.model.opt.timestep * self.cfg.frame_skip)
 
         # Expose neutral hip/foot info for controllers
         self.hip_height: Optional[float] = None
@@ -191,8 +192,15 @@ class MujocoEnv(Env):
     # -------------------------------------------------------------------------
     # Default reward & done
     # -------------------------------------------------------------------------
-    def _default_reward_fn(self, model: mujoco.MjModel, data: mujoco.MjData) -> float:
-        # You’ll override this per-task; 0 is safe default.
+    def _default_reward_fn(
+        self,
+        model: mujoco.MjModel,
+        data: mujoco.MjData,
+        t: int = 0,
+        dt: float = 0.0,
+        action: Optional[np.ndarray] = None,
+    ) -> float:
+        # Override this per-task.
         return 0.0
 
     def _default_done_fn(

@@ -15,8 +15,6 @@ class GaitParams:
     step_length: float       # max |dx| around neutral [m]
     step_height: float       # max upward dz [m]
     cycle_duration: float    # seconds per full L->R->L cycle
-    ramp_up: float = 1.0     # seconds to fade in the gait
-
 
 @dataclass
 class FootDelta:
@@ -62,13 +60,8 @@ def gait_targets(t: float, params: GaitParams) -> Dict[str, FootDelta]:
         right_dx = +dx
         right_dz = +dz
 
-    # ----------------------------
-    # Soft start of gait
-    # ----------------------------
-    ramp = min(t / params.ramp_up, 1.0)
-
-    left_delta  = np.array([left_dx,  left_dz ], dtype=np.float32) * ramp
-    right_delta = np.array([right_dx, right_dz], dtype=np.float32) * ramp
+    left_delta  = np.array([left_dx,  left_dz ], dtype=np.float32)
+    right_delta = np.array([right_dx, right_dz], dtype=np.float32)
 
     return {
         "left":  FootDelta(delta=left_delta,  foot_angle=0.0),
@@ -191,6 +184,50 @@ class ReferenceWalkerPolicy(nn.Module):
             self.left_foot_base = env.foot_base_pos["left"].copy()
             self.right_foot_base = env.foot_base_pos["right"].copy()
 
+    def compute_q_ref(self, t: float) -> np.ndarray:
+        """
+        Compute reference joint positions q_ref at time t
+        (ignores the current state, purely kinematic).
+        """
+        # 1) Gait deltas
+        targets = gait_targets(t, self.gait_params)
+        left_tgt = targets["left"]
+        right_tgt = targets["right"]
+
+        left_ankle_target = self.left_foot_base + left_tgt.delta
+        right_ankle_target = self.right_foot_base + right_tgt.delta
+
+        # 2) IK per leg
+        hip_L_des, knee_L_des, ankle_L_des = self.ik_left.solve(
+            target_x=float(left_ankle_target[0]),
+            target_z=float(left_ankle_target[1]),
+            compute_ankle=True,
+            desired_foot_angle=float(left_tgt.foot_angle),
+        )
+        hip_R_des, knee_R_des, ankle_R_des = self.ik_right.solve(
+            target_x=float(right_ankle_target[0]),
+            target_z=float(right_ankle_target[1]),
+            compute_ankle=True,
+            desired_foot_angle=float(right_tgt.foot_angle),
+        )
+
+        # 3) Fill a full q_ref vector
+        model = self.env.model
+        q_ref = np.zeros(model.nq, dtype=np.float32)
+
+        jmL = self.joint_map.left
+        jmR = self.joint_map.right
+
+        q_ref[jmL.hip] = hip_L_des
+        q_ref[jmL.knee] = knee_L_des
+        q_ref[jmL.ankle] = ankle_L_des
+
+        q_ref[jmR.hip] = hip_R_des
+        q_ref[jmR.knee] = knee_R_des
+        q_ref[jmR.ankle] = ankle_R_des
+
+        return q_ref
+
     def reset(self):
         """Reset internal episode state (e.g. gait phase)."""
         self._time = 0.0
@@ -207,51 +244,19 @@ class ReferenceWalkerPolicy(nn.Module):
         q = obs_np[:nq]
         qd = obs_np[nq:nq + nv]
 
+        # Time update
         t = self._time
         self._time += self.dt
 
-        # 1) Gait deltas (dx, dz) around neutral base pose
-        targets = gait_targets(t, self.gait_params)
-        left_tgt = targets["left"]
-        right_tgt = targets["right"]
-
-        # Combine base + delta: full ankle targets in hip frame
-        left_ankle_target = self.left_foot_base + left_tgt.delta
-        right_ankle_target = self.right_foot_base + right_tgt.delta
-
-        # 2) IK per leg with per-foot angle
-        hip_L_des, knee_L_des, ankle_L_des = self.ik_left.solve(
-            target_x=float(left_ankle_target[0]),
-            target_z=float(left_ankle_target[1]),
-            compute_ankle=True,
-            desired_foot_angle=float(left_tgt.foot_angle),
-        )
-        hip_R_des, knee_R_des, ankle_R_des = self.ik_right.solve(
-            target_x=float(right_ankle_target[0]),
-            target_z=float(right_ankle_target[1]),
-            compute_ankle=True,
-            desired_foot_angle=float(right_tgt.foot_angle),
-        )
-
-        # 3) Desired joint positions in full q vector
-        q_des = q.copy()
-        jmL = self.joint_map.left
-        jmR = self.joint_map.right
-
-        q_des[jmL.hip] = hip_L_des
-        q_des[jmL.knee] = knee_L_des
-        q_des[jmL.ankle] = ankle_L_des
-
-        q_des[jmR.hip] = hip_R_des
-        q_des[jmR.knee] = knee_R_des
-        q_des[jmR.ankle] = ankle_R_des
+        q_ref = self.compute_q_ref(t)
+        # ---------------------------------------------
 
         # 4) Extract controlled joints only
-        q_ctrl = q[self._q_indices]           # shape (n_ctrl,)
-        qd_ctrl = qd[self._qd_indices]        # shape (n_ctrl,)
-        q_des_ctrl = q_des[self._q_indices]   # shape (n_ctrl,)
+        q_ctrl      = q[self._q_indices]          # shape (n_ctrl,)
+        qd_ctrl     = qd[self._qd_indices]        # shape (n_ctrl,)
+        q_des_ctrl  = q_ref[self._q_indices]      # <-- use q_ref here
 
-         # 5) PD control in joint space
+        # 5) PD control in joint space
         tau_ctrl = self.pd.compute(
             q=q_ctrl,
             qd=qd_ctrl,

@@ -41,22 +41,6 @@
 
   <worldbody>
 
-    <!-- Axis indicator (non-colliding) -->
-    <!-- <body name="axis_indicator" pos="0 0 0.3">
-      <geom type="capsule" fromto="0 0 0 0.2 0 0" size="0.002"
-            rgba="1 0 0 1" mass="0" density="0" contype="0" conaffinity="0"/>
-      <geom type="capsule" fromto="0 0 0 0 0.2 0" size="0.002"
-            rgba="0 1 0 1" mass="0" density="0" contype="0" conaffinity="0"/>
-      <geom type="capsule" fromto="0 0 0 0 0 0.2" size="0.002"
-            rgba="0 0 1 1" mass="0" density="0" contype="0" conaffinity="0"/>
-
-      <camera name="fixed_cam"
-              pos="0.8 0.8 0.2"
-              mode="targetbody"
-              target="axis_indicator"
-              fovy="35"/>
-    </body> -->
-
     <!-- Floor: like walker, conaffinity=1 so it collides with main geoms -->
     <geom name="floor" type="plane"
           pos="0 0 0"
