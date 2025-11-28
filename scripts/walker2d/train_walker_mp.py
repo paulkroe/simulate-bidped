@@ -11,8 +11,8 @@ from training.mp_on_policy import (
     MPTrainConfig,
 )
 
-from tasks.walker.reward import reward
-from tasks.walker.done import done
+from tasks.walker2d.reward import reward
+from tasks.walker2d.done import done
 
 
 def make_env() -> MujocoEnv:
@@ -53,7 +53,7 @@ def main():
     mp.set_start_method("spawn", force=True)
 
     train_cfg = MPTrainConfig(
-        total_steps=200_000,
+        total_steps=2_000_000,
         horizon=1024,
         num_workers=7,
         log_interval=10,

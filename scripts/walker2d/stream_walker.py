@@ -8,8 +8,8 @@ from policies.actor_critic import ActorCritic
 from training.on_policy import TrainConfig  # if you want same device config
 from streaming.mjpeg_server import create_app
 
-from tasks.walker.reward import reward
-from tasks.walker.done import done
+from tasks.walker2d.reward import reward
+from tasks.walker2d.done import done
 
 def make_env() -> MujocoEnv:
     # For streaming we want rendering enabled

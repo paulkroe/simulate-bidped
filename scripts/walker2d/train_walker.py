@@ -9,8 +9,8 @@ from policies.actor_critic import ActorCritic
 from algorithms.ppo import PPO, PPOConfig
 from training.on_policy import OnPolicyTrainer, TrainConfig
 
-from tasks.walker.reward import reward
-from tasks.walker.done import done
+from tasks.walker2d.reward import reward
+from tasks.walker2d.done import done
 
 def make_env():
     cfg = MujocoEnvConfig(
