@@ -1,17 +1,12 @@
 # scripts/biped/train_historic_biped_mp.py
 from __future__ import annotations
 
-import multiprocessing as mp
 import numpy as np
 
 from core.mujoco_env import MujocoEnv, MujocoEnvConfig
 from core.history_env import HistoryEnv, HistoryConfig
-
+from training.on_policy import OnPolicyTrainer, TrainConfig
 from algorithms.ppo import PPO, PPOConfig
-from training.mp_on_policy import (
-    MultiProcessOnPolicyTrainer,
-    MPTrainConfig,
-)
 
 from policies.dual_history_policy import DualHistoryActorCritic
 from policies.reference_policy import (
@@ -43,7 +38,7 @@ def make_base_env() -> MujocoEnv:
         hip_site="base",
         left_foot_site="left_foot_ik",
         right_foot_site="right_foot_ik",
-        reward_fn=None,  # set this below
+        reward_fn=None, # set this below
     )
     env = MujocoEnv(cfg)
 
@@ -58,7 +53,7 @@ def make_base_env() -> MujocoEnv:
 
     joint_map = WalkerJointMap(
         left=LegJointIndices(
-            hip=7,    # index of left hip in qpos
+            hip=7,    # e.g. index of left hip in qpos
             knee=8,   # index of left knee in qpos
             ankle=9,  # index of left ankle in qpos
         ),
@@ -69,13 +64,12 @@ def make_base_env() -> MujocoEnv:
         ),
     )
 
-    # Planar leg geometry (meters)
     left_leg_geom = Planar2RLegConfig(L1=0.05, L2=0.058)
     right_leg_geom = Planar2RLegConfig(L1=0.05, L2=0.058)
 
     pd_cfg = PDConfig(kp=50.0, kd=1.0)
 
-    # Same reference controller you use for streaming
+    # This is the same reference controller you already use for streaming
     ref_policy = ReferenceWalkerPolicy(
         env=env,
         gait_params=gait_params,
@@ -85,7 +79,8 @@ def make_base_env() -> MujocoEnv:
         pd_config=pd_cfg,
     )
 
-    # Reference joint trajectory q_ref(t)
+    # We assume ReferenceWalkerPolicy exposes compute_q_ref(time_sec)
+    # that returns a full qpos reference (or at least for the motor joints).
     def ref_q_fn(time_sec: float) -> np.ndarray:
         return ref_policy.compute_q_ref(time_sec)
 
@@ -93,7 +88,7 @@ def make_base_env() -> MujocoEnv:
         env=env,
         ref_q_fn=ref_q_fn,
         torso_body="hips",  # adapt the body name if needed
-        v_des=0.6,          # desired forward speed
+        v_des=0.6,           # desired forward speed
     )
     env.set_reward_fn(reward_fn)
 
@@ -108,14 +103,14 @@ def env_factory() -> HistoryEnv:
     base = make_base_env()
 
     hist_cfg = HistoryConfig(
-        short_horizon=4,   # K_short
-        long_horizon=66,   # K_long
+        short_horizon=4,    # K_short (paper uses 4) 
+        long_horizon=66,    # K_long  (paper uses 66)
     )
 
     env = HistoryEnv(
         base_env=base,
         hist_cfg=hist_cfg,
-        command_dim=4,     # [qdot_x^d, qdot_y^d, q_z^d, q_psi^d]
+        command_dim=4,      # [qdot_x^d, qdot_y^d, q_z^d, q_psi^d]
     )
 
     # For now: fixed command; you can randomize per episode later
@@ -128,7 +123,6 @@ def env_factory() -> HistoryEnv:
     env.set_command(cmd)
 
     return env
-
 
 # ---------------------------------------------------------------------
 # 3) Policy factory: DualHistoryActorCritic
@@ -167,53 +161,33 @@ def policy_factory(env: HistoryEnv):
         act_std=0.2,
     )
 
-
 # ---------------------------------------------------------------------
-# 4) Algo factory for PPO
+# 4) Algo factory + run
 # ---------------------------------------------------------------------
 
-def make_ppo(policy):
-    # You can tune these separately for historic training, but this is a
-    # reasonable starting point for multi-process PPO.
-    ppo_cfg = PPOConfig(
-        gamma=0.995,
-        lam=0.98,
-        clip_ratio=0.2,
-        lr=3e-4,
-        train_iters=80,
-        batch_size=512,   # larger batch since we aggregate across workers
-        value_coef=0.5,
-        entropy_coef=0.00,
-        max_grad_norm=0.5,
-    )
+def algo_factory(policy):
+    ppo_cfg = PPOConfig()
     return PPO(policy, ppo_cfg, device="cpu")
 
 
-# ---------------------------------------------------------------------
-# 5) Multi-process trainer entrypoint
-# ---------------------------------------------------------------------
-
 def main():
-    # Good practice with multiprocessing + PyTorch
-    mp.set_start_method("spawn", force=True)
-
-    train_cfg = MPTrainConfig(
-        total_steps=1_000_000,
+    train_cfg = TrainConfig(
+        total_steps=250_000,
         horizon=2048,
-        num_workers=10,
         log_interval=10,
         device="cpu",
-        checkpoint_path="checkpoints/biped_historic_ppo_mp.pt",
+        checkpoint_path="checkpoints/walker_paper.pt",
     )
 
-    trainer = MultiProcessOnPolicyTrainer(
+    trainer = OnPolicyTrainer(
         env_factory=env_factory,
         policy_factory=policy_factory,
-        algo_factory=make_ppo,
+        algo_factory=algo_factory,
         train_cfg=train_cfg,
     )
 
     trainer.run()
+
 
 
 if __name__ == "__main__":

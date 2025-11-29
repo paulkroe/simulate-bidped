@@ -1,17 +1,12 @@
-# scripts/biped/train_historic_biped_mp.py
+# scripts/biped/stream_historic_biped.py
 from __future__ import annotations
 
-import multiprocessing as mp
 import numpy as np
+import uvicorn
 
 from core.mujoco_env import MujocoEnv, MujocoEnvConfig
 from core.history_env import HistoryEnv, HistoryConfig
-
-from algorithms.ppo import PPO, PPOConfig
-from training.mp_on_policy import (
-    MultiProcessOnPolicyTrainer,
-    MPTrainConfig,
-)
+from streaming.mjpeg_server import create_app
 
 from policies.dual_history_policy import DualHistoryActorCritic
 from policies.reference_policy import (
@@ -28,22 +23,24 @@ from tasks.biped.done import done
 
 
 # ---------------------------------------------------------------------
-# 1) Base MuJoCo env + reference policy + reward
+# 1) Base MuJoCo env + reference policy + reward (with rendering)
 # ---------------------------------------------------------------------
 
-def make_base_env() -> MujocoEnv:
+def make_base_env(render: bool = True) -> MujocoEnv:
     cfg = MujocoEnvConfig(
         xml_path="assets/biped/biped.xml",
-        episode_length=2500,
+        episode_length=5_000,
         frame_skip=5,
         ctrl_scale=0.1,
         reset_noise_scale=0.01,
-        render=False,
+        render=render,
         done_fn=done,
         hip_site="base",
         left_foot_site="left_foot_ik",
         right_foot_site="right_foot_ik",
-        reward_fn=None,  # set this below
+        reward_fn=None,   # set below
+        width=640,
+        height=480,
     )
     env = MujocoEnv(cfg)
 
@@ -58,24 +55,23 @@ def make_base_env() -> MujocoEnv:
 
     joint_map = WalkerJointMap(
         left=LegJointIndices(
-            hip=7,    # index of left hip in qpos
-            knee=8,   # index of left knee in qpos
-            ankle=9,  # index of left ankle in qpos
+            hip=7,
+            knee=8,
+            ankle=9,
         ),
         right=LegJointIndices(
-            hip=10,   # index of right hip
-            knee=11,  # index of right knee
-            ankle=12, # index of right ankle
+            hip=10,
+            knee=11,
+            ankle=12,
         ),
     )
 
-    # Planar leg geometry (meters)
+    # Leg geometry (meters)
     left_leg_geom = Planar2RLegConfig(L1=0.05, L2=0.058)
     right_leg_geom = Planar2RLegConfig(L1=0.05, L2=0.058)
 
     pd_cfg = PDConfig(kp=50.0, kd=1.0)
 
-    # Same reference controller you use for streaming
     ref_policy = ReferenceWalkerPolicy(
         env=env,
         gait_params=gait_params,
@@ -85,15 +81,14 @@ def make_base_env() -> MujocoEnv:
         pd_config=pd_cfg,
     )
 
-    # Reference joint trajectory q_ref(t)
     def ref_q_fn(time_sec: float) -> np.ndarray:
         return ref_policy.compute_q_ref(time_sec)
 
     reward_fn = make_historic_reward(
         env=env,
         ref_q_fn=ref_q_fn,
-        torso_body="hips",  # adapt the body name if needed
-        v_des=0.6,          # desired forward speed
+        torso_body="hips",
+        v_des=0.6,
     )
     env.set_reward_fn(reward_fn)
 
@@ -101,24 +96,24 @@ def make_base_env() -> MujocoEnv:
 
 
 # ---------------------------------------------------------------------
-# 2) Wrap with HistoryEnv to get dual I/O history + command
+# 2) Wrap with HistoryEnv for dual history + command
 # ---------------------------------------------------------------------
 
-def env_factory() -> HistoryEnv:
-    base = make_base_env()
+def make_env() -> HistoryEnv:
+    base = make_base_env(render=True)
 
     hist_cfg = HistoryConfig(
-        short_horizon=4,   # K_short
-        long_horizon=66,   # K_long
+        short_horizon=4,
+        long_horizon=66,
     )
 
     env = HistoryEnv(
         base_env=base,
         hist_cfg=hist_cfg,
-        command_dim=4,     # [qdot_x^d, qdot_y^d, q_z^d, q_psi^d]
+        command_dim=4,  # [qdot_x^d, qdot_y^d, q_z^d, q_psi^d]
     )
 
-    # For now: fixed command; you can randomize per episode later
+    # Same fixed command as training
     if base.hip_height is None:
         base_h = 1.0
     else:
@@ -134,7 +129,7 @@ def env_factory() -> HistoryEnv:
 # 3) Policy factory: DualHistoryActorCritic
 # ---------------------------------------------------------------------
 
-def policy_factory(env: HistoryEnv):
+def make_policy(env: HistoryEnv):
     """
     Build a dual-history policy that matches HistoryEnv’s obs layout:
       obs = [ base_obs |
@@ -169,51 +164,21 @@ def policy_factory(env: HistoryEnv):
 
 
 # ---------------------------------------------------------------------
-# 4) Algo factory for PPO
-# ---------------------------------------------------------------------
-
-def make_ppo(policy):
-    # You can tune these separately for historic training, but this is a
-    # reasonable starting point for multi-process PPO.
-    ppo_cfg = PPOConfig(
-        gamma=0.995,
-        lam=0.98,
-        clip_ratio=0.2,
-        lr=3e-4,
-        train_iters=80,
-        batch_size=512,   # larger batch since we aggregate across workers
-        value_coef=0.5,
-        entropy_coef=0.00,
-        max_grad_norm=0.5,
-    )
-    return PPO(policy, ppo_cfg, device="cpu")
-
-
-# ---------------------------------------------------------------------
-# 5) Multi-process trainer entrypoint
+# 4) Run MJPEG streaming server
 # ---------------------------------------------------------------------
 
 def main():
-    # Good practice with multiprocessing + PyTorch
-    mp.set_start_method("spawn", force=True)
+    checkpoint_path = "checkpoints/biped_historic_ppo_mp.pt"  # historic MP training
+    device = "cpu"
 
-    train_cfg = MPTrainConfig(
-        total_steps=1_000_000,
-        horizon=2048,
-        num_workers=10,
-        log_interval=10,
-        device="cpu",
-        checkpoint_path="checkpoints/biped_historic_ppo_mp.pt",
+    app = create_app(
+        env_factory=make_env,
+        policy_factory=make_policy,
+        checkpoint_path=checkpoint_path,
+        device=device,
     )
 
-    trainer = MultiProcessOnPolicyTrainer(
-        env_factory=env_factory,
-        policy_factory=policy_factory,
-        algo_factory=make_ppo,
-        train_cfg=train_cfg,
-    )
-
-    trainer.run()
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
 
 
 if __name__ == "__main__":
