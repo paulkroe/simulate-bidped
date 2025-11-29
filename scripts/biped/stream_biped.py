@@ -4,6 +4,7 @@ from __future__ import annotations
 import uvicorn
 
 from core.mujoco_env import MujocoEnv, MujocoEnvConfig
+from core.biped_obs_wrapper import BipedSensorWrapper
 from policies.actor_critic import ActorCritic
 from training.on_policy import TrainConfig  # if you want same device config
 from streaming.mjpeg_server import create_app
@@ -11,29 +12,34 @@ from streaming.mjpeg_server import create_app
 from tasks.biped.reward import reward
 from tasks.biped.done import done
 
-def make_env() -> MujocoEnv:
-    # For streaming we want rendering enabled
+def make_env():
+    # Make the EXACT SAME base config as training
     cfg = MujocoEnvConfig(
         xml_path="assets/biped/biped.xml",
-        episode_length=5_000,
+        episode_length=5000,
         frame_skip=5,
         ctrl_scale=0.1,
         reset_noise_scale=0.01,
-        render=True,
         reward_fn=reward,
         done_fn=done,
+        render=True,          # only difference allowed
         width=640,
         height=480,
+        hip_site="base",
+        left_foot_site="left_foot_ik",
+        right_foot_site="right_foot_ik",
     )
-    return MujocoEnv(cfg)
 
+    base = MujocoEnv(cfg)
+    # Critically: wrap it in the SAME observation wrapper
+    return BipedSensorWrapper(base)
 
 def make_policy(env):
-    return ActorCritic(env.spec, hidden_sizes=(64, 64))
+    return ActorCritic(env.spec, hidden_sizes=(128, 128))
 
 
 def main():
-    checkpoint_path = "checkpoints/walker_ppo_mp.pt"  # same as in training
+    checkpoint_path = "checkpoints/biped_ik_mp.pt"  # same as in training
     device = "cpu"
 
     app = create_app(

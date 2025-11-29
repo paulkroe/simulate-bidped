@@ -1,0 +1,9 @@
+Fri Nov 28 19:38:52 2025
+WARNING: mju_openResource: unknown file 'assets/biped/biped.xml'
+
+Fri Nov 28 19:39:12 2025
+WARNING: mju_openResource: unknown file 'assets/biped/biped.xml'
+
+Fri Nov 28 19:40:25 2025
+WARNING: mju_openResource: unknown file 'assets/biped/biped.xml'
+

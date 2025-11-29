@@ -1,4 +1,4 @@
-# tasks/walker_reward.py
+# tasks/biped/reward.py
 import mujoco
 import numpy as np
 
@@ -6,47 +6,86 @@ def reward(
     model: mujoco.MjModel,
     data: mujoco.MjData,
     *,
-    forward_reward_weight: float = 1.5,
+    forward_reward_weight: float = 1.0,
+    lateral_penalty_weight: float = 0.5,
+    height_penalty_weight: float = 10.0,
+    pitch_penalty_weight: float = 0.5,
+    ctrl_cost_weight: float = 0.001,
     healthy_reward: float = 0.05,
-    ctrl_cost_weight: float = 0.01,
+    target_hip_height: float = 0.17,  # around initial hips z
 ) -> tuple[float, dict]:
     """
-    Approximate Gymnasium Walker2d-v4 reward.
+    Reward for the DIY biped:
 
-    - forward_reward ~ x-velocity of the root body (qvel[0])
-    - healthy_reward if within healthy range of height & angle
+    - forward_reward ~ x-velocity of the hips body
+    - lateral_penalty penalizes y^2
+    - height_penalty penalizes (z_hip - target_hip_height)^2
+    - pitch_penalty penalizes torso pitch^2
     - ctrl_cost penalizes squared actions
+    - healthy_reward if still in a reasonable configuration
     """
-    # Root joint velocity in x (this is effectively (x_after - x_before)/dt)
-    forward_vel = float(data.qvel[0])
-    forward_reward = forward_reward_weight * forward_vel
 
-    # Control cost
+    # --- COM / body kinematics ---
+    hips_id = model.body("hips").id
+    # data.cvel: [nbody, 6], last 3 components are angular vel
+    hips_cvel = data.cvel[hips_id]  # [6]
+    hips_vel = hips_cvel[:3]       # (vx, vy, vz)
+
+    vx = float(hips_vel[0])
+    vy = float(hips_vel[1])
+
+    forward_reward = forward_reward_weight * vx
+    lateral_penalty = lateral_penalty_weight * (vy * vy)
+
+    # --- height & pitch from body pose ---
+    hips_pos = data.xpos[hips_id]  # [3]
+    z_hip = float(hips_pos[2])
+
+    height_error = z_hip - target_hip_height
+    height_penalty = height_penalty_weight * (height_error * height_error)
+
+    # Extract pitch from hips orientation.
+    # data.xmat[hips_id] is a 3x3 rotation matrix in row-major form.
+    # We'll roughly approximate pitch from this matrix.
+    R = data.xmat[hips_id].reshape(3, 3)
+    # Simple atan2-based pitch (rot around y axis):
+    # assuming R = Rz * Ry * Rx; pitch ~ atan2(-R[2,0], sqrt(R[0,0]^2 + R[1,0]^2))
+    pitch = float(np.arctan2(-R[2, 0], np.sqrt(R[0, 0] ** 2 + R[1, 0] ** 2)))
+    pitch_penalty = pitch_penalty_weight * (pitch * pitch)
+
+    # --- Control cost ---
     ctrl_cost = ctrl_cost_weight * float(np.sum(np.square(data.ctrl)))
 
-    # Health / alive
-    # For Walker2d in Gym:
-    #   z (height) in [0.8, 2.0]
-    #   angle in [-1.0, 1.0]
-    z = float(data.qpos[1])      # vertical position of torso
-    angle = float(data.qpos[2])  # orientation pitch
-
+    # --- Healthy bonus ---
+    # Keep a simple check: no NaNs, reasonable height, moderate pitch
     is_healthy = (
         np.isfinite(data.qpos).all()
         and np.isfinite(data.qvel).all()
-        and (0.8 < z < 2.0)
-        and (-1.0 < angle < 1.0)
+        and (0.05 < z_hip < 0.5)    # tweak as needed
+        and (abs(pitch) < 1.0)
     )
-
     healthy_bonus = healthy_reward if is_healthy else 0.0
 
-    total = forward_reward + healthy_bonus - ctrl_cost
+    total = (
+        forward_reward
+        - lateral_penalty
+        - height_penalty
+        - pitch_penalty
+        - ctrl_cost
+        + healthy_bonus
+    )
 
     components = {
-        "forward_vel": forward_vel,
+        "vx": vx,
+        "vy": vy,
         "forward_reward": forward_reward,
+        "lateral_penalty": lateral_penalty,
+        "height_penalty": height_penalty,
+        "pitch_penalty": pitch_penalty,
         "ctrl_cost": ctrl_cost,
         "healthy_bonus": healthy_bonus,
+        "z_hip": z_hip,
+        "pitch": pitch,
         "is_healthy": float(is_healthy),
     }
     return float(total), components
