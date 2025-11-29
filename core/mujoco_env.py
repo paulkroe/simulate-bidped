@@ -249,8 +249,8 @@ class MujocoEnv(Env):
             self._t += 1
 
         obs = self._get_obs()
-
-        reward_raw = self._reward_fn(self.model, self.data)
+        
+        reward_raw = self._reward_fn(self.model, self.data, self._t, self.dt, applied_action)
         if isinstance(reward_raw, tuple):
             reward, reward_components = reward_raw
         else:
@@ -278,6 +278,13 @@ class MujocoEnv(Env):
             frame=frame,
         )
 
+    def set_reward_fn(self, reward_fn: RewardFn) -> None:
+        """
+        Replace the current reward function at runtime.
+        Useful when the reward needs access to the fully
+        constructed env (e.g., reference motion, hip height).
+        """
+        self._reward_fn = reward_fn
 
     def close(self) -> None:
         # Renderer holds GL resources; cleanly drop reference

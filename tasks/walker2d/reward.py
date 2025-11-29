@@ -5,10 +5,12 @@ import numpy as np
 def reward(
     model: mujoco.MjModel,
     data: mujoco.MjData,
-    *,
-    forward_reward_weight: float = 0.1,
+    t: float,
+    dt: float,
+    action: np.ndarray,
+    forward_reward_weight: float = 1.5,
     healthy_reward: float = 0.05,
-    ctrl_cost_weight: float = 0.1,
+    ctrl_cost_weight: float = 0.01,
 ) -> tuple[float, dict]:
     """
     Approximate Gymnasium Walker2d-v4 reward.

@@ -1,10 +1,10 @@
 # policies/dual_history_policy.py
 from __future__ import annotations
 from typing import Tuple
-
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.distributions as D
+from typing import Tuple
 
 from core.specs import EnvSpec
 
@@ -15,7 +15,7 @@ class DualHistoryActorCritic(nn.Module):
     Dual-history policy:
     - Long history encoded with 1D CNN
     - Short history + current obs + command go directly to base MLP
-    - Output: Gaussian over normalized actions (tanh)
+    - Output: Gaussian over normalized actions (tanh on mean)
     """
 
     def __init__(
@@ -72,9 +72,20 @@ class DualHistoryActorCritic(nn.Module):
         self.mu_head = nn.Linear(hidden_size, act_dim)
         self.v_head = nn.Linear(hidden_size, 1)
 
-        self.log_std = nn.Parameter(torch.full((act_dim,), float(torch.log(torch.tensor(act_std)))))
+        # log_std is state-independent (like in your simple ActorCritic)
+        self.log_std = nn.Parameter(
+            torch.full(
+                (act_dim,),
+                float(torch.log(torch.tensor(act_std)))
+            )
+        )
 
-    def _split_obs(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    def _split_obs(
+        self, obs: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         obs: (B, total_obs_dim) = [base_obs | short | long | command]
         """
@@ -89,13 +100,15 @@ class DualHistoryActorCritic(nn.Module):
         base_obs = obs[:, :base]
         short_hist = obs[:, base:base + short_dim]
         long_hist = obs[:, base + short_dim:base + short_dim + long_dim]
-        cmd = obs[:, base + short_dim + long_dim :]
+        cmd = obs[:, base + short_dim + long_dim:]
 
         return base_obs, short_hist, long_hist, cmd
 
-    def forward(self, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _forward_body(self, obs: torch.Tensor) -> torch.Tensor:
         """
-        Returns mu, value, log_std (shared across batch).
+        Shared trunk: encode long history with CNN, then concatenate
+        base_obs, short_hist, command, long_emb and run through base_net.
+        Returns features h used by both policy and value heads.
         """
         base_obs, short_hist, long_hist, cmd = self._split_obs(obs)
 
@@ -104,29 +117,56 @@ class DualHistoryActorCritic(nn.Module):
 
         # reshape long_hist to (B, C, T)
         long_hist_reshaped = long_hist.view(B, pair_dim, self.long_steps)
-
         long_emb = self.long_encoder(long_hist_reshaped)
 
         x = torch.cat([base_obs, short_hist, cmd, long_emb], dim=-1)
         h = self.base_net(x)
+        return h
 
+    # ------------------------------------------------------------------
+    # The _dist method PPO needs
+    # ------------------------------------------------------------------
+    def _dist(self, obs: torch.Tensor):
+        """
+        Construct action distribution and return (dist, features).
+        Matches the pattern used by ActorCritic so PPO can call it.
+        """
+        h = self._forward_body(obs)
+        mu = torch.tanh(self.mu_head(h))
+        std = self.log_std.exp()
+        dist = D.Normal(mu, std)
+        return dist, h
+
+    # ------------------------------------------------------------------
+    # High-level API: forward / act / value
+    # ------------------------------------------------------------------
+    def forward(
+        self, obs: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Returns mu, value, log_std (shared across batch).
+        Mainly useful if you want to use it directly.
+        """
+        h = self._forward_body(obs)
         mu = torch.tanh(self.mu_head(h))
         value = self.v_head(h).squeeze(-1)
         return mu, value, self.log_std
 
     def act(self, obs: torch.Tensor, deterministic: bool = False):
-        mu, _, log_std = self.forward(obs)
-        std = log_std.exp()
-        dist = D.Normal(mu, std)
-
+        """
+        For rollout: returns (action, log_prob)
+        """
+        dist, _ = self._dist(obs)
         if deterministic:
-            action = mu
+            action = dist.loc
         else:
             action = dist.rsample()
-
         logp = dist.log_prob(action).sum(-1)
         return action, logp
 
     def value(self, obs: torch.Tensor):
-        _, v, _ = self.forward(obs)
-        return v
+        """
+        Value function V(s)
+        """
+        h = self._forward_body(obs)
+        return self.v_head(h).squeeze(-1)

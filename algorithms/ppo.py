@@ -137,8 +137,5 @@ class PPO:
         return metrics
 
     def _make_dist(self, obs: torch.Tensor) -> torch.distributions.Normal:
-        # reuse actor_critic’s dist logic
-        x = self.actor_critic._forward_body(obs)
-        mean = self.actor_critic.mean_head(x)
-        std = self.actor_critic.log_std.exp()
-        return torch.distributions.Normal(mean, std)
+        dist, _ = self.actor_critic._dist(obs)
+        return dist
