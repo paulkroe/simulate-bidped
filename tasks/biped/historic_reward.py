@@ -47,7 +47,7 @@ def make_historic_reward(
     # Weights
     # ------------------------------------------------------------------
     w_motion_p      = 5.0
-    w_pelvis_vel = 0.0
+    w_pelvis_vel    = 0.25
     w_torque        = 0.0
     w_action_diff   = 0.0
 
@@ -69,7 +69,7 @@ def make_historic_reward(
         nonlocal last_action
 
         r_idx = index(r_data["time"], t * dt)
-        r_joint_pos = r_data["time"][r_idx]
+        r_joint_pos = r_data["qpos"][r_idx]
         joint_pos = data.qpos[env._qpos_offset:]
 
 
@@ -95,7 +95,7 @@ def make_historic_reward(
         r_pelvis_vel = exp_reward(
             np.array([vx], dtype=np.float32),
             np.array([v_des], dtype=np.float32),
-            alpha=50.0,
+            alpha=100.0,
         )
 
         # --------------------------------------------------------------

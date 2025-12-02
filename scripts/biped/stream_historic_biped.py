@@ -44,64 +44,8 @@ def make_base_env(render: bool = True) -> MujocoEnv:
     )
     env = MujocoEnv(cfg)
 
-    # ---------------------------
-    # Reference gait controller
-    # ---------------------------
-    gait_params = GaitParams(
-        step_length=0.02,
-        step_height=0.01,
-        cycle_duration=1.25,
-    )
-
-    joint_map = WalkerJointMap(
-        left=LegJointIndices(
-            hip=7,
-            knee=8,
-            ankle=9,
-        ),
-        right=LegJointIndices(
-            hip=10,
-            knee=11,
-            ankle=12,
-        ),
-    )
-
-    left_leg_geom = Planar2RLegConfig(
-        L1=0.05,   # thigh length [m]
-        L2=0.058,   # shank length [m]
-        knee_sign=1.0,
-        hip_offset=np.pi/2,
-        knee_offset=0,
-        ankle_offset=-np.pi/2,
-
-    )
-    right_leg_geom = Planar2RLegConfig(
-        L1=0.05,
-        L2=0.058,
-        knee_sign=1.0,
-        hip_offset=np.pi/2,
-        knee_offset=0,
-        ankle_offset=-np.pi/2,
-    )
-
-    pd_cfg = PDConfig(kp=5.0, kd=1.0)
-
-    ref_policy = ReferenceWalkerPolicy(
-        env=env,
-        gait_params=gait_params,
-        joint_map=joint_map,
-        left_leg_geom=left_leg_geom,
-        right_leg_geom=right_leg_geom,
-        pd_config=pd_cfg,
-    )
-
-    def ref_q_fn(time_sec: float) -> np.ndarray:
-        return ref_policy.compute_q_ref(time_sec)
-
     reward_fn = make_historic_reward(
         env=env,
-        ref_q_fn=ref_q_fn,
-        base_site="base",
         v_des=0.02,
     )
     env.set_reward_fn(reward_fn)
@@ -119,6 +63,7 @@ def make_env() -> HistoryEnv:
     hist_cfg = HistoryConfig(
         short_horizon=4,
         long_horizon=66,
+        reference_path="recordings/biped_reference_recording_4096.npz",
     )
 
     env = HistoryEnv(
@@ -151,27 +96,21 @@ def make_policy(env: HistoryEnv):
     long_h = 66
 
     act_dim = env.spec.act.shape[0]
-    A = act_dim
-    Ks = short_h
-    Kl = long_h
+    pair_dim = env.base_obs_dim + act_dim
     cmd_dim = 4
-    total = env.spec.obs.shape[0]
 
-    # total = B + (Ks + Kl) * (B + A) + cmd_dim
-    # => total - cmd_dim = B * (1 + Ks + Kl) + (Ks + Kl) * A
-    B = (total - cmd_dim - (Ks + Kl) * A) / (1 + Ks + Kl)
-    base_obs_dim = int(B)
+    ref_dim = 18 
 
     return DualHistoryActorCritic(
         spec=env.spec,
-        base_obs_dim=base_obs_dim,
-        short_hist_len=short_h,
-        long_hist_len=long_h,
+        pair_dim=pair_dim,
+        short_horizon=short_h,
+        long_horizon=long_h,
+        ref_dim=ref_dim,
         command_dim=cmd_dim,
         hidden_size=512,
         act_std=0.2,
     )
-
 
 # ---------------------------------------------------------------------
 # 4) Run MJPEG streaming server
