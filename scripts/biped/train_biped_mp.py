@@ -55,7 +55,7 @@ def main():
     mp.set_start_method("spawn", force=True)
 
     train_cfg = MPTrainConfig(
-        total_steps=200_000,
+        total_steps=5_000_000,
         horizon=1024,
         num_workers=7,
         log_interval=10,

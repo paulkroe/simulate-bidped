@@ -36,7 +36,7 @@ def reward(
     is_healthy = (
         np.isfinite(data.qpos).all()
         and np.isfinite(data.qvel).all()
-        and (0.8 < z < 2.0)
+        and (0.12 < z < 0.18)
         and (-1.0 < angle < 1.0)
     )
 
