@@ -42,9 +42,9 @@ def make_env() -> MujocoEnv:
 def make_policy(env: MujocoEnv):
     # ---- Gait parameters (Option A: small, safe gait) ----
     gait_params = GaitParams(
-        step_length=0.02,      # small horizontal excursion
+        step_length=0.03,      # small horizontal excursion
         step_height=0.01,      # low but non-zero clearance
-        cycle_duration=1.25,   # ~1.25s per full L->R cycle
+        cycle_duration=1.0,   # ~1.25s per full L->R cycle
     )
 
     # 2R leg geometry (same for both legs)
