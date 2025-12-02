@@ -17,7 +17,6 @@ class Planar2RLegConfig:
     ankle_offset: float = 0.0
  
 
-
 class Planar2RLegIK:
     def __init__(self, cfg: Planar2RLegConfig):
         self.cfg = cfg

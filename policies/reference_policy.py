@@ -10,57 +10,76 @@ import torch.nn as nn
 from control.ik_2r import Planar2RLegConfig, Planar2RLegIK
 from control.pd import PDConfig, PDController
 
+
+# ------------------------------------------------------------
+# Gait description
+# ------------------------------------------------------------
+
 @dataclass
 class GaitParams:
     step_length: float       # max |dx| around neutral [m]
     step_height: float       # max upward dz [m]
     cycle_duration: float    # seconds per full L->R->L cycle
 
+
 @dataclass
 class FootDelta:
     delta: np.ndarray   # (dx, dz)
-    foot_angle: float
+    foot_angle: float   # desired foot pitch (rad)
+
 
 def gait_targets(t: float, params: GaitParams) -> Dict[str, FootDelta]:
     """
-    Symmetric 2-phase gait:
-      - Phase 0.0–0.5:  LEFT swings, RIGHT stance.
-      - Phase 0.5–1.0:  RIGHT swings, LEFT stance.
-      - dz is always >= 0 (we only LIFT).
-      - Starts with LEFT swinging.
+    Symmetric, conservative 2-phase gait:
 
-    delta is relative to the foot's neutral/base position.
+      - Phase [0.0, 0.5):  LEFT swings, RIGHT stance.
+      - Phase [0.5, 1.0):  RIGHT swings, LEFT stance.
+      - dz >= 0: we only LIFT the swing foot off the ground.
+      - delta is relative to each foot's neutral/base position.
+
+    Horizontal motion is a single, smooth back->forward sweep
+    (no forward-back-forward redundancy).
     """
-    # Time → phase in [0, 1)
     phase = (t / params.cycle_duration) % 1.0
 
-    # ----------------------------
-    # Phase allocation
-    # ----------------------------
-    if phase < 0.5:
-        # LEFT swings: use phase 0.0-0.5 mapped to 0-1 for the swing
-        swing_phase = phase * 2.0  # 0 to 1
-        omega = 2.0 * np.pi * swing_phase
-        dx = params.step_length * np.sin(omega)
-        dz = params.step_height * max(0.0, np.sin(omega))
-        
-        left_dx = +dx
-        left_dz = +dz
-        right_dx = -dx
-        right_dz = 0.0     # stance leg stays on ground
-    else:
-        # RIGHT swings: use phase 0.5-1.0 mapped to 0-1 for the swing
-        swing_phase = (phase - 0.5) * 2.0  # 0 to 1
-        omega = 2.0 * np.pi * swing_phase
-        dx = params.step_length * np.sin(omega)
-        dz = params.step_height * max(0.0, np.sin(omega))
-        
-        left_dx = -dx
-        left_dz = 0.0
-        right_dx = +dx
-        right_dz = +dz
+    def smooth_height(s: float) -> float:
+        s = np.clip(s, 0.0, 1.0)
+        s3 = s * s * s
+        s4 = s3 * s
+        s5 = s4 * s
+        return 6.0 * s5 - 15.0 * s4 + 10.0 * s3
 
-    left_delta  = np.array([left_dx,  left_dz ], dtype=np.float32)
+    if phase < 0.5:
+        # LEFT swings: map [0, 0.5] -> [0, 1]
+        s = phase * 2.0  # 0..1
+
+        # Horizontal: single monotonic sweep from -L to +L
+        #   -cos(pi*s) goes: -1 -> +1 over s in [0,1]
+        swing_dx = -params.step_length * (-np.cos(np.pi * s))
+
+        # Vertical: min-jerk lift
+        swing_dz = params.step_height * smooth_height(s)
+
+        left_dx = swing_dx
+        left_dz = swing_dz
+
+        # Stance foot mirrors horizontally but stays on ground
+        right_dx = -swing_dx
+        right_dz = 0.0
+    else:
+        # RIGHT swings: map [0.5, 1.0] -> [0, 1]
+        s = (phase - 0.5) * 2.0  # 0..1
+
+        swing_dx = -params.step_length * (-np.cos(np.pi * s))
+        swing_dz = params.step_height * smooth_height(s)
+
+        right_dx = swing_dx
+        right_dz = swing_dz
+
+        left_dx = -swing_dx
+        left_dz = 0.0
+
+    left_delta  = np.array([left_dx,  left_dz], dtype=np.float32)
     right_delta = np.array([right_dx, right_dz], dtype=np.float32)
 
     return {
@@ -75,10 +94,11 @@ def gait_targets(t: float, params: GaitParams) -> Dict[str, FootDelta]:
 @dataclass
 class LegJointIndices:
     """
-    Indices of the leg joints in the full q/qdot/ctrl/action vectors.
-    These are robot-specific and MUST be adapted to your biped.xml.
+    Joint indices in q/qdot arrays for ONE leg.
+    hip_roll and hip_pitch are separate DOFs at the hip.
     """
-    hip: int
+    hip_roll: int
+    hip_pitch: int
     knee: int
     ankle: int
 
@@ -93,10 +113,9 @@ class ReferenceWalkerPolicy(nn.Module):
     """
     Hand-crafted baseline controller:
 
-      gait (foot targets) -> 2R leg IK -> desired joint angles -> PD -> torques.
+      gait (foot targets) -> 2R leg IK (pitch plane) -> desired joint angles -> PD -> torques.
 
-    The interface matches ActorCritic.act: it returns (action_tensor, logp_tensor),
-    but logp is just zeros since this is not stochastic.
+    The roll DOFs are kept near 0 (upright) by PD tracking q_des = 0 on hip_roll.
     """
     def __init__(
         self,
@@ -115,12 +134,15 @@ class ReferenceWalkerPolicy(nn.Module):
         self.joint_map = joint_map
         self.desired_foot_angle = desired_foot_angle
 
+        # For Option A (safe gait), use gait_params as passed in
+        # without additional scaling.
+
         # Simulation timestep (approx): dt = timestep * frame_skip
         dt = env.model.opt.timestep * env.cfg.frame_skip
         self.dt = float(dt)
         self._time = 0.0
 
-        # IK for each leg
+        # IK for each leg (in sagittal plane: hip_pitch, knee, ankle)
         self.ik_left = Planar2RLegIK(left_leg_geom)
         self.ik_right = Planar2RLegIK(right_leg_geom)
 
@@ -133,26 +155,25 @@ class ReferenceWalkerPolicy(nn.Module):
         # ------------------------------------------------------------------
         # Joint index bookkeeping
         # ------------------------------------------------------------------
-        # Joint indices in q (qpos) space that we want to control
         jmL = self.joint_map.left
         jmR = self.joint_map.right
 
         # Vector of q indices for all controlled joints (left + right leg)
         self._q_indices = np.array(
             [
-                jmL.hip, jmL.knee, jmL.ankle,
-                jmR.hip, jmR.knee, jmR.ankle,
+                jmL.hip_roll, jmL.hip_pitch, jmL.knee, jmL.ankle,
+                jmR.hip_roll, jmR.hip_pitch, jmR.knee, jmR.ankle,
             ],
             dtype=int,
         )
-        
+
         # For MuJoCo models with a floating base, nq != nv.
         # Typically: nq = 7 + n_hinge, nv = 6 + n_hinge → offset = nq - nv = 1.
         # For non-base joints: qd_index = q_index - offset
         model = self.env.model
         nq = model.nq
         nv = model.nv
-        offset = nq - nv
+        offset = nq - nv  # for your biped: 15 - 14 = 1
 
         self._qd_indices = self._q_indices - offset
 
@@ -189,7 +210,7 @@ class ReferenceWalkerPolicy(nn.Module):
         Compute reference joint positions q_ref at time t
         (ignores the current state, purely kinematic).
         """
-        # 1) Gait deltas
+        # 1) Gait foot deltas
         targets = gait_targets(t, self.gait_params)
         left_tgt = targets["left"]
         right_tgt = targets["right"]
@@ -197,14 +218,14 @@ class ReferenceWalkerPolicy(nn.Module):
         left_ankle_target = self.left_foot_base + left_tgt.delta
         right_ankle_target = self.right_foot_base + right_tgt.delta
 
-        # 2) IK per leg
-        hip_L_des, knee_L_des, ankle_L_des = self.ik_left.solve(
+        # 2) IK in sagittal plane: hip_pitch, knee, ankle
+        hip_L_pitch_des, knee_L_des, ankle_L_des = self.ik_left.solve(
             target_x=float(left_ankle_target[0]),
             target_z=float(left_ankle_target[1]),
             compute_ankle=True,
             desired_foot_angle=float(left_tgt.foot_angle),
         )
-        hip_R_des, knee_R_des, ankle_R_des = self.ik_right.solve(
+        hip_R_pitch_des, knee_R_des, ankle_R_des = self.ik_right.solve(
             target_x=float(right_ankle_target[0]),
             target_z=float(right_ankle_target[1]),
             compute_ankle=True,
@@ -218,13 +239,18 @@ class ReferenceWalkerPolicy(nn.Module):
         jmL = self.joint_map.left
         jmR = self.joint_map.right
 
-        q_ref[jmL.hip] = hip_L_des
-        q_ref[jmL.knee] = knee_L_des
-        q_ref[jmL.ankle] = ankle_L_des
+        # Hip roll desired = 0 (upright), PD will keep it there
+        q_ref[jmL.hip_roll] = 0.0
+        q_ref[jmR.hip_roll] = 0.0
 
-        q_ref[jmR.hip] = hip_R_des
-        q_ref[jmR.knee] = knee_R_des
-        q_ref[jmR.ankle] = ankle_R_des
+        # Hip pitch, knee, ankle from IK
+        q_ref[jmL.hip_pitch] = hip_L_pitch_des
+        q_ref[jmL.knee]      = knee_L_des
+        q_ref[jmL.ankle]     = ankle_L_des
+
+        q_ref[jmR.hip_pitch] = hip_R_pitch_des
+        q_ref[jmR.knee]      = knee_R_des
+        q_ref[jmR.ankle]     = ankle_R_des
 
         return q_ref
 
@@ -249,14 +275,13 @@ class ReferenceWalkerPolicy(nn.Module):
         self._time += self.dt
 
         q_ref = self.compute_q_ref(t)
-        # ---------------------------------------------
 
-        # 4) Extract controlled joints only
-        q_ctrl      = q[self._q_indices]          # shape (n_ctrl,)
-        qd_ctrl     = qd[self._qd_indices]        # shape (n_ctrl,)
-        q_des_ctrl  = q_ref[self._q_indices]      # <-- use q_ref here
+        # Extract controlled joints only
+        q_ctrl     = q[self._q_indices]       # (n_ctrl,)
+        qd_ctrl    = qd[self._qd_indices]     # (n_ctrl,)
+        q_des_ctrl = q_ref[self._q_indices]   # (n_ctrl,)
 
-        # 5) PD control in joint space
+        # PD control in joint space
         tau_ctrl = self.pd.compute(
             q=q_ctrl,
             qd=qd_ctrl,
@@ -264,9 +289,8 @@ class ReferenceWalkerPolicy(nn.Module):
             qd_des=None,
         )  # shape (n_ctrl,)
 
-        # 6) Scatter torques into full action vector
+        # Scatter torques into full action vector
         action = np.zeros(self.act_dim, dtype=np.float32)
-
         for q_idx, tau in zip(self._q_indices, tau_ctrl):
             act_idx = self._act_for_q.get(int(q_idx), None)
             if act_idx is not None and 0 <= act_idx < self.act_dim:

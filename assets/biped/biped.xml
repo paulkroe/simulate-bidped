@@ -18,13 +18,13 @@
   </visual>
 
   <asset>
-    <mesh name="hips"            file="meshes/hips.stl"            scale="0.001 0.001 0.001"/>
-    <mesh name="left_leg"        file="meshes/left_leg.stl"        scale="0.001 0.001 0.001"/>
-    <mesh name="right_leg"       file="meshes/right_leg.stl"       scale="0.001 0.001 0.001"/>
-    <mesh name="left_connectors" file="meshes/left_connectors.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="hips"             file="meshes/hips.stl"            scale="0.001 0.001 0.001"/>
+    <mesh name="left_leg"         file="meshes/left_leg.stl"        scale="0.001 0.001 0.001"/>
+    <mesh name="right_leg"        file="meshes/right_leg.stl"       scale="0.001 0.001 0.001"/>
+    <mesh name="left_connectors"  file="meshes/left_connectors.stl" scale="0.001 0.001 0.001"/>
     <mesh name="right_connectors" file="meshes/right_connectors.stl" scale="0.001 0.001 0.001"/>
-    <mesh name="left_foot"       file="meshes/left_foot.stl"       scale="0.001 0.001 0.001"/>
-    <mesh name="right_foot"      file="meshes/right_foot.stl"      scale="0.001 0.001 0.001"/>
+    <mesh name="left_foot"        file="meshes/left_foot.stl"       scale="0.001 0.001 0.001"/>
+    <mesh name="right_foot"       file="meshes/right_foot.stl"      scale="0.001 0.001 0.001"/>
 
     <material name="mat_hips"      rgba="0.6 0.6 1.0 1"/>
     <material name="mat_leg"       rgba="0.5 0.8 1.0 1"/>
@@ -56,23 +56,31 @@
            mode="trackcom"/>
 
     <body name="biped" pos="0 0 0.17" euler="0 0 1.5708">
-      <!-- We keep a free base instead of rootx/rootz/rooty triple -->
+      <!-- Free-floating base (7-DoF root) -->
       <joint type="free"/>
 
       <body name="hips" pos="0 0 0">
         <site name="base"
-            pos="0.04 -0.005 -0.045"
-            size="0.01"
-            rgba="1 0 0 0"
-            type="sphere"/>
+              pos="0.04 -0.005 -0.045"
+              size="0.01"
+              rgba="1 0 0 0"
+              type="sphere"/>
         <geom type="mesh" mesh="hips" material="mat_hips" class="main"/>
 
-        <!-- LEFT -->
+        <!-- LEFT LEG CHAIN -->
         <body name="left_connectors">
-          <joint name="left_hip_joint" type="hinge"
+          <!-- Hip roll (lateral) -->
+          <joint name="left_hip_roll" type="hinge"
+                 pos="-0.031 -0.005 -0.045"
+                 axis="0 1 0"
+                 range="-0.5 0.5"/>
+
+          <!-- Hip pitch (sagittal) -->
+          <joint name="left_hip_pitch" type="hinge"
                  pos="-0.031 -0.005 -0.045"
                  axis="1 0 0"
                  range="-1.57 1.57"/>
+
           <geom type="mesh" mesh="left_connectors" material="mat_connector" class="main"/>
 
           <body name="left_leg">
@@ -88,6 +96,7 @@
                      axis="1 0 0"
                      range="-0.4 0.4"/>
               <geom type="mesh" mesh="left_foot" material="mat_foot" class="main"/>
+
               <!-- IK / contact reference point on the left foot -->
               <site name="left_foot_ik"
                     pos="-0.031 -0.005 -0.153"
@@ -98,12 +107,20 @@
           </body>
         </body>
 
-        <!-- RIGHT -->
+        <!-- RIGHT LEG CHAIN -->
         <body name="right_connectors">
-          <joint name="right_hip_joint" type="hinge"
+          <!-- Hip roll (lateral) -->
+          <joint name="right_hip_roll" type="hinge"
+                 pos="0.111 -0.005 -0.045"
+                 axis="0 1 0"
+                 range="-0.5 0.5"/>
+
+          <!-- Hip pitch (sagittal) -->
+          <joint name="right_hip_pitch" type="hinge"
                  pos="0.111 -0.005 -0.045"
                  axis="1 0 0"
                  range="-1.57 1.57"/>
+
           <geom type="mesh" mesh="right_connectors" material="mat_connector" class="main"/>
 
           <body name="right_leg">
@@ -119,6 +136,7 @@
                      axis="1 0 0"
                      range="-0.4 0.4"/>
               <geom type="mesh" mesh="right_foot" material="mat_foot" class="main"/>
+
               <!-- IK / contact reference point on the right foot -->
               <site name="right_foot_ik"
                     pos="0.111 -0.005 -0.153"
@@ -134,20 +152,32 @@
   </worldbody>
 
   <actuator>
-    <!-- Torque actuators (walker-style) -->
-    <general name="left_hip_act"   joint="left_hip_joint"
-             ctrlrange="-1 1" gear="0.5 0 0 0 0 0" actdim="0"/>
-    <general name="left_leg_act"   joint="left_leg_joint"
-             ctrlrange="-1 1" gear="0.5 0 0 0 0 0" actdim="0"/>
-    <general name="left_foot_act"  joint="left_foot_joint"
-             ctrlrange="-1 1" gear="0.5 0 0 0 0 0" actdim="0"/>
+    <!-- Hip roll actuators -->
+    <general name="left_hip_roll_act" joint="left_hip_roll"
+             ctrlrange="-1 1" gear="1"/>
 
-    <general name="right_hip_act"  joint="right_hip_joint"
-             ctrlrange="-1 1" gear="0.5 0 0 0 0 0" actdim="0"/>
-    <general name="right_leg_act"  joint="right_leg_joint"
-             ctrlrange="-1 1" gear="0.5 0 0 0 0 0" actdim="0"/>
+    <general name="right_hip_roll_act" joint="right_hip_roll"
+             ctrlrange="-1 1" gear="1"/>
+
+    <!-- Hip pitch actuators -->
+    <general name="left_hip_pitch_act" joint="left_hip_pitch"
+             ctrlrange="-1 1" gear="1"/>
+
+    <general name="right_hip_pitch_act" joint="right_hip_pitch"
+             ctrlrange="-1 1" gear="1"/>
+
+    <!-- Knee + ankle actuators -->
+    <general name="left_leg_act" joint="left_leg_joint"
+             ctrlrange="-1 1" gear="1"/>
+
+    <general name="left_foot_act" joint="left_foot_joint"
+             ctrlrange="-1 1" gear="1"/>
+
+    <general name="right_leg_act" joint="right_leg_joint"
+             ctrlrange="-1 1" gear="1"/>
+
     <general name="right_foot_act" joint="right_foot_joint"
-             ctrlrange="-1 1" gear="0.5 0 0 0 0 0" actdim="0"/>
+             ctrlrange="-1 1" gear="1"/>
   </actuator>
 
   <contact>

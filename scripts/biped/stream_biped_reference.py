@@ -1,4 +1,4 @@
-# scripts/stream_walker_reference.py
+# scripts/stream_biped_reference.py
 from __future__ import annotations
 
 import uvicorn
@@ -18,6 +18,7 @@ from control.pd import PDConfig
 
 from tasks.biped.reward import reward as reward
 from tasks.biped.done import done as done
+
 
 def make_env() -> MujocoEnv:
     cfg = MujocoEnvConfig(
@@ -39,47 +40,61 @@ def make_env() -> MujocoEnv:
 
 
 def make_policy(env: MujocoEnv):
-    # ---- Gait parameters ----
+    # ---- Gait parameters (Option A: small, safe gait) ----
     gait_params = GaitParams(
-        step_length=0.02,      # tune to be realistic for your tiny biped
-        step_height=0.01,      # front foot height
-        cycle_duration=1.25,    # 1 second per full step R->L
+        step_length=0.02,      # small horizontal excursion
+        step_height=0.01,      # low but non-zero clearance
+        cycle_duration=1.25,   # ~1.25s per full L->R cycle
     )
 
+    # 2R leg geometry (same for both legs)
     leg_geom_left = Planar2RLegConfig(
-        L1=0.05,   # thigh length [m]
-        L2=0.058,   # shank length [m]
+        L1=0.05,       # thigh length [m]
+        L2=0.058,      # shank length [m]
         knee_sign=1.0,
-        hip_offset=np.pi/2,
-        knee_offset=0,
-        ankle_offset=-np.pi/2,
-
+        hip_offset=np.pi / 2,     # rotate plane into model frame
+        knee_offset=0.0,
+        ankle_offset=-np.pi / 2,
     )
     leg_geom_right = Planar2RLegConfig(
         L1=0.05,
         L2=0.058,
         knee_sign=1.0,
-        hip_offset=np.pi/2,
-        knee_offset=0,
-        ankle_offset=-np.pi/2,
+        hip_offset=np.pi / 2,
+        knee_offset=0.0,
+        ankle_offset=-np.pi / 2,
     )
 
+    # PD gains (global for all joints)
     pd_cfg = PDConfig(
         kp=50.0,
         kd=1.0,
         torque_limit=None,
     )
 
+    # Joint indices from inspect_joints.py:
+    #
+    #  free joint: qpos 0..6
+    #  7  left_hip_roll
+    #  8  left_hip_pitch
+    #  9  left_leg_joint (knee)
+    # 10  left_foot_joint (ankle)
+    # 11  right_hip_roll
+    # 12  right_hip_pitch
+    # 13  right_leg_joint
+    # 14  right_foot_joint
     joint_map = WalkerJointMap(
         left=LegJointIndices(
-            hip=7,
-            knee=8,
-            ankle=9,
+            hip_roll=7,
+            hip_pitch=8,
+            knee=9,
+            ankle=10,
         ),
         right=LegJointIndices(
-            hip=10,
-            knee=11,
-            ankle=12,
+            hip_roll=11,
+            hip_pitch=12,
+            knee=13,
+            ankle=14,
         ),
     )
 
