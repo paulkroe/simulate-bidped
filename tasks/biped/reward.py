@@ -1,6 +1,36 @@
-# tasks/walker_reward.py
+# tasks/biped/reward.py
 import mujoco
 import numpy as np
+
+
+def _body_forward_velocity_world(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    body_name: str,
+) -> float:
+    """
+    Forward (world-x) linear velocity of a body using mj_objectVelocity.
+
+    mj_objectVelocity returns a 6D velocity [rot(3), lin(3)] for the body,
+    in an object-centered frame but with world orientation when flg_local=0.
+    We just take the linear part and its x-component.
+    """
+    body_id = model.body(body_name).id
+
+    vel6 = np.zeros(6, dtype=np.float64)
+    mujoco.mj_objectVelocity(
+        model,
+        data,
+        mujoco.mjtObj.mjOBJ_BODY,
+        body_id,
+        vel6,
+        0,  # 0 = world orientation
+    )
+
+    linear_world = vel6[3:]           # [vx, vy, vz]
+    forward_vel = float(linear_world[0])  # world-x as "forward"
+    return forward_vel
+
 
 def reward(
     model: mujoco.MjModel,
@@ -8,47 +38,41 @@ def reward(
     t: float,
     dt: float,
     action: np.ndarray,
-    forward_reward_weight: float = 1.5,
-    healthy_reward: float = 0.05,
+    target_v: float = 0.4,
+    sigma_v: float = 0.2,
+    vel_weight: float = 1.0,
+    alive_bonus: float = 0.05,
     ctrl_cost_weight: float = 0.01,
 ) -> tuple[float, dict]:
-    """
-    Approximate Gymnasium Walker2d-v4 reward.
+    # --- forward velocity from hips + feet ---
+    base_forward  = 2.0 * _body_forward_velocity_world(model, data, "hips")
+    left_forward  = _body_forward_velocity_world(model, data, "left_foot")
+    right_forward = _body_forward_velocity_world(model, data, "right_foot")
 
-    - forward_reward ~ x-velocity of the root body (qvel[0])
-    - healthy_reward if within healthy range of height & angle
-    - ctrl_cost penalizes squared actions
-    """
-    # Root joint velocity in x (this is effectively (x_after - x_before)/dt)
-    forward_vel = float(data.qvel[0])
-    forward_reward = forward_reward_weight * forward_vel
+    # simple linear combo (tune weights as you like)
+    forward_vel = 0.3 * (left_forward + right_forward + 0 * base_forward)
 
-    # Control cost
+    # linear forward reward (you can revert to Gaussian shaping if you want)
+    forward_reward = vel_weight * forward_vel
+
+    # --- control cost ---
     ctrl_cost = ctrl_cost_weight * float(np.sum(np.square(data.ctrl)))
 
-    # Health / alive
-    # For Walker2d in Gym:
-    #   z (height) in [0.8, 2.0]
-    #   angle in [-1.0, 1.0]
-    z = float(data.qpos[1])      # vertical position of torso
-    angle = float(data.qpos[2])  # orientation pitch
+    # --- alive bonus ---
+    z = float(data.qpos[2])
+    alive = z > 0.12
+    alive_reward = alive_bonus if alive else 0.0
 
-    is_healthy = (
-        np.isfinite(data.qpos).all()
-        and np.isfinite(data.qvel).all()
-        and (0.12 < z < 0.18)
-        and (-1.0 < angle < 1.0)
-    )
-
-    healthy_bonus = healthy_reward if is_healthy else 0.0
-
-    total = forward_reward + healthy_bonus - ctrl_cost
+    total = forward_reward + alive_reward - ctrl_cost
 
     components = {
         "forward_vel": forward_vel,
+        "base_forward_vel": base_forward,
+        "left_forward_vel": left_forward,
+        "right_forward_vel": right_forward,
         "forward_reward": forward_reward,
+        "alive_reward": alive_reward,
         "ctrl_cost": ctrl_cost,
-        "healthy_bonus": healthy_bonus,
-        "is_healthy": float(is_healthy),
+        "is_alive": float(alive),
     }
     return float(total), components
