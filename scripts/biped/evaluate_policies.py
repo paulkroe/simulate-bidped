@@ -22,7 +22,6 @@ from control.pd import PDConfig
 from tasks.biped.reward import reward
 from tasks.biped.done import done
 
-
 @dataclass
 class EvalStats:
     """Statistics from policy evaluation."""
@@ -33,6 +32,7 @@ class EvalStats:
     episode_rewards: np.ndarray
     episode_lengths: np.ndarray
     episode_distances: np.ndarray
+    episode_times: np.ndarray  # NEW: simulation time per episode
     
     # Aggregate metrics
     mean_reward: float
@@ -41,7 +41,9 @@ class EvalStats:
     std_length: float
     mean_distance: float
     std_distance: float
-    mean_velocity: float
+    mean_velocity: float  # Now in m/s instead of m/step
+    mean_time: float      # NEW: mean episode time in seconds
+    std_time: float       # NEW: std of episode time
     
     # Control metrics
     mean_torque: float
@@ -60,8 +62,9 @@ class EvalStats:
             f"",
             f"Episode Reward:   {self.mean_reward:8.2f} ± {self.std_reward:.2f}",
             f"Episode Length:   {self.mean_length:8.1f} ± {self.std_length:.1f} steps",
+            f"Episode Time:     {self.mean_time:8.2f} ± {self.std_time:.2f} s",
             f"Distance:         {self.mean_distance:8.3f} ± {self.std_distance:.3f} m",
-            f"Mean Velocity:    {self.mean_velocity:8.4f} m/step",
+            f"Mean Velocity:    {self.mean_velocity:8.4f} m/s",
             f"",
             f"Mean |Torque|:    {self.mean_torque:8.4f}",
             f"Max |Torque|:     {self.max_torque:8.4f}",
@@ -82,7 +85,7 @@ def evaluate_policy(
     policy_factory: Callable[[Any], Any],
     policy_name: str,
     num_episodes: int = 10,
-    max_steps_per_episode: int = 5000,
+    max_steps_per_episode: int = 6000,
     checkpoint_path: str | None = None,
     device: str = "cpu",
     deterministic: bool = True,
@@ -92,6 +95,9 @@ def evaluate_policy(
     """
     env = env_factory()
     policy = policy_factory(env)
+    
+    # Get simulation dt for time calculation
+    dt = env.dt if hasattr(env, "dt") else 0.002  # fallback default
     
     if hasattr(policy, "to"):
         policy = policy.to(device)
@@ -107,6 +113,7 @@ def evaluate_policy(
     episode_rewards: List[float] = []
     episode_lengths: List[int] = []
     episode_distances: List[float] = []
+    episode_times: List[float] = []  # NEW
     
     # Storage for step-level metrics (aggregated)
     all_torques: List[float] = []
@@ -156,13 +163,16 @@ def evaluate_policy(
         # End position
         end_x = env.data.qpos[0] if hasattr(env, "data") else 0.0
         distance = end_x - start_x
+        ep_time = ep_length * dt  # NEW: compute simulation time
         
         episode_rewards.append(ep_reward)
         episode_lengths.append(ep_length)
         episode_distances.append(distance)
+        episode_times.append(ep_time)  # NEW
         
         print(f"  Episode {ep+1}/{num_episodes}: "
-              f"reward={ep_reward:.2f}, length={ep_length}, distance={distance:.3f}m")
+              f"reward={ep_reward:.2f}, length={ep_length}, "
+              f"time={ep_time:.2f}s, distance={distance:.3f}m")
     
     env.close()
     
@@ -170,6 +180,7 @@ def evaluate_policy(
     episode_rewards = np.array(episode_rewards)
     episode_lengths = np.array(episode_lengths)
     episode_distances = np.array(episode_distances)
+    episode_times = np.array(episode_times)  # NEW
     all_torques = np.array(all_torques) if all_torques else np.array([0.0])
     
     # Compute reward component means
@@ -183,19 +194,21 @@ def evaluate_policy(
         episode_rewards=episode_rewards,
         episode_lengths=episode_lengths,
         episode_distances=episode_distances,
+        episode_times=episode_times,  # NEW
         mean_reward=float(np.mean(episode_rewards)),
         std_reward=float(np.std(episode_rewards)),
         mean_length=float(np.mean(episode_lengths)),
         std_length=float(np.std(episode_lengths)),
         mean_distance=float(np.mean(episode_distances)),
         std_distance=float(np.std(episode_distances)),
-        mean_velocity=float(np.mean(episode_distances / episode_lengths)),
+        mean_velocity=float(np.mean(episode_distances / episode_times)),  # CHANGED: now m/s
+        mean_time=float(np.mean(episode_times)),  # NEW
+        std_time=float(np.std(episode_times)),    # NEW
         mean_torque=float(np.mean(all_torques)),
         max_torque=float(np.max(all_torques)),
         torque_std=float(np.std(all_torques)),
         reward_components=reward_components_mean,
     )
-
 
 def print_comparison_table(stats_list: List[EvalStats]) -> None:
     """Print a side-by-side comparison table."""
@@ -214,8 +227,9 @@ def print_comparison_table(stats_list: List[EvalStats]) -> None:
     metrics = [
         ("Episode Reward", lambda s: f"{s.mean_reward:.2f} ± {s.std_reward:.2f}"),
         ("Episode Length", lambda s: f"{s.mean_length:.0f} ± {s.std_length:.0f}"),
+        ("Episode Time (s)", lambda s: f"{s.mean_time:.2f} ± {s.std_time:.2f}"),
         ("Distance (m)", lambda s: f"{s.mean_distance:.3f} ± {s.std_distance:.3f}"),
-        ("Mean Velocity (m/step)", lambda s: f"{s.mean_velocity:.5f}"),
+        ("Mean Velocity (m/s)", lambda s: f"{s.mean_velocity:.4f}"),
         ("Mean |Torque|", lambda s: f"{s.mean_torque:.4f}"),
         ("Max |Torque|", lambda s: f"{s.max_torque:.4f}"),
     ]
@@ -330,7 +344,7 @@ def main():
         policy_factory=make_actor_critic_policy,
         policy_name="Learned (PPO)",
         num_episodes=num_episodes,
-        checkpoint_path="checkpoints/biped_ppo_mp.pt",
+        checkpoint_path="checkpoints/biped_ppo_mp_1.pt",
         device=device,
     )
     
@@ -352,16 +366,5 @@ def main():
     # Print comparison table
     print_comparison_table([learned_stats, reference_stats])
     
-    # Generate LaTeX table
-    latex = generate_latex_table([learned_stats, reference_stats])
-    print("\nLaTeX Table:")
-    print(latex)
-    
-    # Save LaTeX to file
-    with open("recordings/policy_comparison.tex", "w") as f:
-        f.write(latex)
-    print("\nLaTeX table saved to recordings/policy_comparison.tex")
-
-
 if __name__ == "__main__":
     main()

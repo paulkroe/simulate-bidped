@@ -32,21 +32,19 @@ def make_policy(env):
 
 
 def main():
-    # -------------------------------------------------------------------------
-    # Recording settings - modify these as needed
-    # -------------------------------------------------------------------------
-    checkpoint_path = "checkpoints/biped_ppo_mp.pt"
-    output_path = "recordings/biped_video.mp4"
-    num_steps = 2000  # Number of simulation steps to record
+    checkpoint_path = "checkpoints/local_optimum_biped_ppo_mp_0.pt"
+    output_path = "recordings/local_optimum_biped_ppo_mp_0.mp4"
+    num_steps = 1000  # Number of simulation steps to record
     device = "cpu"
     seed = None  # Set to an integer for reproducible recordings
 
     # Camera settings
     camera = CameraSettings(
-        distance=3.0,
+        distance=1.0,
         azimuth=90.0,
         elevation=-20.0,
         lookat=(0.0, 0.0, 0.5),
+        track_body="biped"
     )
     # -------------------------------------------------------------------------
 

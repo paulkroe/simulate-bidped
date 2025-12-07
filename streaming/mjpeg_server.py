@@ -32,6 +32,7 @@ class CameraSettings:
     azimuth: float = 90.0
     elevation: float = -20.0
     lookat: tuple[float, float, float] = (0.0, 0.0, 0.5)
+    track_body: str | None = None
 
 class CameraSettingsRequest(BaseModel):
     distance: float | None = None
