@@ -113,7 +113,8 @@ def record_video(
         with torch.no_grad():
             action, _ = policy.act(obs, deterministic=deterministic)
         
-        action = action.squeeze(0).cpu().numpy()
+        if isinstance(action, torch.Tensor):
+            action = action.squeeze(0).cpu().numpy()
         step_res = env.step(action)
         
         # Collect frame
