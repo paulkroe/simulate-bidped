@@ -47,10 +47,6 @@ class MujocoEnvConfig:
     left_foot_site: Optional[str] = None
     right_foot_site: Optional[str] = None
 
-    # recroding options
-    path: Optional[Path] = None  # path to save recorded data
-    record_joints: bool = False  # whether to record joint positions
-
 class MujocoEnv(Env):
     def __init__(self, cfg: MujocoEnvConfig):
         self.cfg = cfg
@@ -168,13 +164,6 @@ class MujocoEnv(Env):
                 self.model, height=cfg.height, width=cfg.width
             )
 
-        # Set up joint recording
-        if cfg.record_joints:
-            cfg.path = Path(cfg.path) if cfg.path is not None else None
-            self._recorded = {"time": [], "qpos": [], "qvel": []}
-        else:
-            self._recorded = {}
-
     # -------------------------------------------------------------------------
     # Core helpers
     # -------------------------------------------------------------------------
@@ -185,18 +174,6 @@ class MujocoEnv(Env):
         self._recorded["qpos"].append(self.data.qpos[self._qpos_offset:].copy())
         # Record only actuated joint velocities (skip root DOFs)
         self._recorded["qvel"].append(self.data.qvel[self._qvel_offset:].copy())
-
-    def _save_recording(self) -> None:
-        if self.cfg.path is None or not self.cfg.record_joints:
-            return
-        save_path = self.cfg.path
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(
-            save_path,
-            time=np.array(self._recorded["time"]),
-            qpos=np.array(self._recorded["qpos"]),
-            qvel=np.array(self._recorded["qvel"]),
-        )
 
     def _quat_to_euler(self, quat: np.ndarray) -> np.ndarray:
         """Convert quaternion (w, x, y, z) to Euler angles (roll, pitch, yaw)."""
@@ -220,9 +197,6 @@ class MujocoEnv(Env):
         return np.array([roll, pitch, yaw], dtype=np.float32)
 
     def _get_obs(self) -> np.ndarray:
-        if self.cfg.record_joints:
-            self._record_obs()
-        
         if self._is_2d:
             # 2D model (e.g., Walker2D): root is (x, z, angle)
             # Extract angle and convert to "euler-like" format
@@ -348,11 +322,6 @@ class MujocoEnv(Env):
         # clear controls
         if self.model.nu > 0:
             self.data.ctrl[:] = 0.0
-
-        # save recording only if there's data, then reset
-        if self.cfg.record_joints and any(len(v) > 0 for v in self._recorded.values()):
-            self._save_recording()
-            self._recorded = {"time": [], "qpos": [], "qvel": []}
 
         mujoco.mj_forward(self.model, self.data)
 

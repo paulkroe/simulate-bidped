@@ -32,7 +32,7 @@ class EvalStats:
     episode_rewards: np.ndarray
     episode_lengths: np.ndarray
     episode_distances: np.ndarray
-    episode_times: np.ndarray  # NEW: simulation time per episode
+    episode_times: np.ndarray
     
     # Aggregate metrics
     mean_reward: float
@@ -41,16 +41,15 @@ class EvalStats:
     std_length: float
     mean_distance: float
     std_distance: float
-    mean_velocity: float  # Now in m/s instead of m/step
-    mean_time: float      # NEW: mean episode time in seconds
-    std_time: float       # NEW: std of episode time
+    mean_velocity: float
+    mean_time: float
+    std_time: float
     
     # Control metrics
     mean_torque: float
     max_torque: float
     torque_std: float
     
-    # Reward components (if available)
     reward_components: Dict[str, float]
     
     def __str__(self) -> str:
