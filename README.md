@@ -15,13 +15,13 @@ This codebase implements a modular RL training system specifically designed for 
 
 ## Features
 
-- 🚶 **Bipedal Locomotion**: Train policies for bipedal robots to walk forward
-- 🎯 **PPO Training**: State-of-the-art on-policy RL algorithm
-- 🔄 **Multi-process Support**: Parallel environment workers for efficient data collection
-- 🎮 **PD Control**: Low-level joint control with configurable gains
-- 📹 **Live Streaming**: Real-time visualization via web interface
-- 🎬 **Video Recording**: Export simulation videos with FFmpeg
-- 🔧 **Modular Design**: Easy to extend with new robots, tasks, and algorithms
+- **Bipedal Locomotion**: Train policies for bipedal robots to walk forward
+- **PPO Training**: State-of-the-art on-policy RL algorithm
+- **Multi-process Support**: Parallel environment workers for efficient data collection
+- **PD Control**: Low-level joint control with configurable gains
+- **Live Streaming**: Real-time visualization via web interface
+- **Video Recording**: Export simulation videos with FFmpeg
+- **Modular Design**: Easy to extend with new robots, tasks, and algorithms
 
 ## Installation
 
